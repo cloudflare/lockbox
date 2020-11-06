@@ -1,0 +1,42 @@
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  creationTimestamp: null
+  name: lockbox-controller
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - lockbox.k8s.cloudflare.com
+  resources:
+  - lockbox
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - lockbox.k8s.cloudflare.com
+  resources:
+  - lockbox/status
+  verbs:
+  - get
+  - patch
+  - update

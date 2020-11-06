@@ -1,0 +1,12 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: lockbox
+  namespace: lockbox
+spec:
+  ports:
+  - port: 80
+    targetPort: 8081
+  selector:
+    app: lockbox
+    component: controller

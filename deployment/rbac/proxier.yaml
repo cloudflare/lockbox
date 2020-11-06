@@ -1,0 +1,27 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: lockbox-proxier
+  namespace: lockbox
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - "services/proxy"
+    resourceNames:
+      - "http:lockbox:"
+    verbs:
+      - "get"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: lockbox-proxier
+  namespace: lockbox
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: lockbox-proxier
+subjects:
+  - kind: Group
+    name: system:authenticated

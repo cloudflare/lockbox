@@ -1,0 +1,38 @@
+#+TITLE: Lockbox
+
+[[https://pkg.go.dev/github.com/cloudflare/lockbox][https://pkg.go.dev/badge/github.com/cloudflare/lockbox.png]]
+
+Lockbox is a secure way to store Kubernetes Secrets offline. Secrets are asymmetrically encrypted, and can only be decrypted by the Lockbox Kubernetes controller. A companion CLI tool, =locket=, makes encrypting secrets a one-step process.
+
+** Features
++ Secure encryption using modern cryptography. Uses Salsa20, Poly1305, and Curve25519.
++ Secrets are locked to specific namespaces.
++ All Kubernetes Secret types are supported.
++ Plays nicely with Secrets created by other controllers.
++ Continuously reconciles child resources.
+
+** Example Usage
+Create a native Secret, but pass =--dry-run= to avoid submitting to the API.
+
+#+begin_example
+$ kubectl create secret generic mysecret --namespace default \
+  --from-literal=foo=bar -o yaml > mysecret.yaml
+#+end_example
+
+Then, use locket to encrypt the secret.
+
+#+begin_example
+$ locket -f mysecret.yaml > mylockbox.yaml
+#+end_example
+
+Submit the lockbox to the API.
+
+#+begin_example
+$ kubectl create -f mylockbox.yaml
+#+end_example
+
+Remove the unencrypted secret.
+
+#+begin_example
+$ rm mysecret.yaml
+#+end_example

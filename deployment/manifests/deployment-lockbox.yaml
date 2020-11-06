@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lockbox-controller
+  namespace: lockbox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lockbox
+      component: controller
+  template:
+    metadata:
+      labels:
+        app: lockbox
+        component: controller
+    spec:
+      serviceAccountName: lockbox-controller
+      containers:
+      - name: lockbox
+        image: lockbox:latest
+        ports:
+        - containerPort: 8080
+          name: http-metrics
+        - containerPort: 8081
+          name: http-api
+        volumeMounts:
+        - name: keypair
+          mountPath: /etc/lockbox/
+          readOnly: true
+      volumes:
+      - name: keypair
+        secret:
+          secretName: keypair
+          defaultMode: 256
