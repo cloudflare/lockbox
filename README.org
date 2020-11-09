@@ -16,7 +16,7 @@ Create a native Secret, but pass =--dry-run= to avoid submitting to the API.
 
 #+begin_example
 $ kubectl create secret generic mysecret --namespace default \
-  --from-literal=foo=bar -o yaml > mysecret.yaml
+  --from-literal=foo=bar --dry-run -o yaml > mysecret.yaml
 #+end_example
 
 Then, use locket to encrypt the secret.
