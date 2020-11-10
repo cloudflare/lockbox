@@ -33,8 +33,8 @@ type LockboxSpec struct {
 	// Peer stores the public key that can unlock this Lockbox.
 	Peer []byte `json:"peer"`
 
-	// Namespace stores an encrypted copy of which namepsace this Lockbox is locked
-	// for, ensuring it cannot be deployed to another namespce under an attacker's
+	// Namespace stores an encrypted copy of which namespace this Lockbox is locked
+	// for, ensuring it cannot be deployed to another namespace under an attacker's
 	// control.
 	Namespace []byte `json:"namespace"`
 

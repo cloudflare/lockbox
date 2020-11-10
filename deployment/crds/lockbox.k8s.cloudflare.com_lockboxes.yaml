@@ -53,8 +53,8 @@ spec:
                 characters, '-', '_', or '.'.
               type: object
             namespace:
-              description: Namespace stores an encrypted copy of which namepsace this
-                Lockbox is locked for, ensuring it cannot be deployed to another namespce
+              description: Namespace stores an encrypted copy of which namespace this
+                Lockbox is locked for, ensuring it cannot be deployed to another namespace
                 under an attacker's control.
               format: byte
               type: string

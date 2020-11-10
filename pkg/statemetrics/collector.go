@@ -67,7 +67,7 @@ func NewKubernetesVec(opts KubernetesOpts, labelNames []string) *KubernetesVec {
 	}
 }
 
-// WithLabelValues returns the Kubenetes metric for the given slice of label values (in the same order
+// WithLabelValues returns the Kubernetes metric for the given slice of label values (in the same order
 // as the variable labels).
 //
 // Consecutive calls for the same uid replace earlier metrics.
