@@ -104,7 +104,7 @@ func TestLockUnlock(t *testing.T) {
 	}
 
 	if err := lb.UnlockInto(unlockedSecret, serverPriKey); err != nil {
-		t.Fatalf("unepxected error unlocking secret: %v", err)
+		t.Fatalf("unexpected error unlocking secret: %v", err)
 	}
 
 	if diff := cmp.Diff(unlockedSecret, expectedSecret); diff != "" {

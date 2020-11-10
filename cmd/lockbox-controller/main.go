@@ -77,7 +77,7 @@ func main() {
 	cfg.UserAgent = fmt.Sprintf("%s/%s (%s/%s)", os.Args[0], version, runtime.GOOS, runtime.GOARCH)
 
 	if err != nil {
-		logger.Fatal().Err(err).Msg("unnable to get kubeconfig")
+		logger.Fatal().Err(err).Msg("unable to get kubeconfig")
 		os.Exit(1)
 	}
 
