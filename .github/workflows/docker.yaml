@@ -17,7 +17,7 @@ jobs:
           buildah manifest add lockbox docker-archive:./docker-amd64
           buildah manifest add lockbox docker-archive:./docker-arm64
           buildah manifest inspect lockbox
-          buildah manifest push --all --creds ${DOCKER_HUB_USERNAME}:${DOCKER_HUB_TOKEN} -f v2s2 lockbox docker://lockboxx:${GITHUB_REF#refs/tags/}
+          buildah manifest push --all --creds ${DOCKER_HUB_USERNAME}:${DOCKER_HUB_TOKEN} -f v2s2 lockbox docker://cloudflare/lockbox:${GITHUB_REF#refs/tags/}
           EOF
         env:
           DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
