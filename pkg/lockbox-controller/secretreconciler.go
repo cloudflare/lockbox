@@ -22,8 +22,8 @@ import (
 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;patch;update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups="lockbox.k8s.cloudflare.com",resources=lockbox,verbs=get;list;watch
-// +kubebuilder:rbac:groups="lockbox.k8s.cloudflare.com",resources=lockbox/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="lockbox.k8s.cloudflare.com",resources=lockboxes,verbs=get;list;watch
+// +kubebuilder:rbac:groups="lockbox.k8s.cloudflare.com",resources=lockboxes/status,verbs=get;update;patch
 
 const keySize = nacl.KeySize
 

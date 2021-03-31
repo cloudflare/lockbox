@@ -27,7 +27,7 @@ rules:
 - apiGroups:
   - lockbox.k8s.cloudflare.com
   resources:
-  - lockbox
+  - lockboxes
   verbs:
   - get
   - list
@@ -35,7 +35,7 @@ rules:
 - apiGroups:
   - lockbox.k8s.cloudflare.com
   resources:
-  - lockbox/status
+  - lockboxes/status
   verbs:
   - get
   - patch
