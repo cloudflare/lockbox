@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"net"
@@ -9,21 +10,20 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/butonic/zerologr"
 	lockboxv1 "github.com/cloudflare/lockbox/pkg/apis/lockbox.k8s.cloudflare.com/v1"
 	"github.com/cloudflare/lockbox/pkg/flagvar"
 	lockboxcontroller "github.com/cloudflare/lockbox/pkg/lockbox-controller"
 	server "github.com/cloudflare/lockbox/pkg/lockbox-server"
 	"github.com/cloudflare/lockbox/pkg/statemetrics"
+	"github.com/go-logr/zerologr"
 	"github.com/kevinburke/nacl"
-	"github.com/oklog/run"
 	"github.com/rs/zerolog"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
-	rlog "sigs.k8s.io/controller-runtime/pkg/log"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -47,13 +47,13 @@ func main() {
 	flag.String("v", "", "log level for V logs")
 	flag.Parse()
 
-	logger := zerolog.New(os.Stderr)
-	log := zerologr.NewWithOptions(zerologr.Options{
-		Logger: &logger,
-	})
-	rlog.SetLogger(log)
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
+	zerologr.NameFieldName = "logger"
+	zerologr.NameSeparator = "/"
 
-	logger = logger.With().Str("name", "main").Logger()
+	zl := zerolog.New(os.Stderr).With().Caller().Timestamp().Logger()
+	logf.SetLogger(zerologr.New(&zl))
+	logger := zl.With().Str("name", "main").Logger()
 
 	keypair, err := os.Open(keypairPath.Value)
 	if err != nil {
@@ -150,53 +150,45 @@ func main() {
 		os.Exit(1)
 	}
 
-	var g run.Group
-	{
-		stop := signals.SetupSignalHandler()
-		cancel := make(chan struct{})
-		g.Add(func() error {
-			select {
-			case <-stop:
-				return nil
-			case <-cancel:
-				return nil
-			}
-		}, func(err error) {
-			close(cancel)
-		})
-	}
-	{
-		cancel := make(chan struct{})
-		g.Add(func() error {
-			if err := mgr.Start(cancel); err != nil {
-				logger.Error().Err(err).Msg("unable to start manager")
-				return err
-			}
-			return nil
-		}, func(err error) {
-			close(cancel)
-		})
-	}
-	{
+	// TODO(terin): make server implement Runnable
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		mux := http.NewServeMux()
 		mux.Handle("/v1/public", server.PublicKey(pubKey))
+
 		ln, err := net.Listen("tcp", httpAddr.Text)
 		if err != nil {
-			logger.Error().Err(err).Msg("unable to start HTTP server")
-			os.Exit(-1)
+			return err
 		}
 
-		g.Add(func() error {
-			s := http.Server{
-				Handler:      mux,
-				ReadTimeout:  5 * time.Second,
-				WriteTimeout: 10 * time.Second,
+		// sig.kubernetes.io/controller-runtime/pkg/internal/httpserver
+		s := http.Server{
+			Handler:           mux,
+			MaxHeaderBytes:    1 << 20,
+			IdleTimeout:       90 * time.Second,
+			ReadHeaderTimeout: 32 * time.Second,
+		}
+
+		idleConnsClosed := make(chan struct{})
+		go func() {
+			<-ctx.Done()
+
+			if err := s.Shutdown(context.Background()); err != nil {
+				logger.Err(err).Send()
 			}
-			return s.Serve(ln)
-		}, func(err error) {
-			ln.Close()
-		})
+			close(idleConnsClosed)
+		}()
+
+		if err := s.Serve(ln); err != nil && err != http.ErrServerClosed {
+			return err
+		}
+
+		<-idleConnsClosed
+		return nil
+	})); err != nil {
+		logger.Fatal().Err(err).Msg("unable to add server runnable")
 	}
 
-	g.Run()
+	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+		logger.Fatal().Err(err).Send()
+	}
 }

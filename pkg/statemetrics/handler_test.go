@@ -36,10 +36,7 @@ func TestStateMetricsProxy_Create(t *testing.T) {
 	reg := prometheus.NewPedanticRegistry()
 	reg.MustRegister(info, created, resourceVersion, lbType, peerKey, labels)
 
-	evt := event.CreateEvent{
-		Object: lb,
-		Meta:   lb.GetObjectMeta(),
-	}
+	evt := event.CreateEvent{Object: lb}
 
 	handler := NewStateMetricProxy(nil, info, created, resourceVersion, lbType, peerKey, labels)
 	handler.Create(evt, nil)
@@ -112,15 +109,10 @@ func TestStateMetricsProxy_Update(t *testing.T) {
 	reg := prometheus.NewPedanticRegistry()
 	reg.MustRegister(info, created, resourceVersion, lbType, peerKey, labels)
 
-	create := event.CreateEvent{
-		Object: old,
-		Meta:   old.GetObjectMeta(),
-	}
+	create := event.CreateEvent{Object: old}
 	upd := event.UpdateEvent{
 		ObjectOld: old,
-		MetaOld:   old.GetObjectMeta(),
 		ObjectNew: lb,
-		MetaNew:   lb.GetObjectMeta(),
 	}
 
 	handler := NewStateMetricProxy(nil, info, created, resourceVersion, lbType, peerKey, labels)
@@ -177,13 +169,9 @@ func TestStateMetricsProxy_Delete(t *testing.T) {
 	reg := prometheus.NewPedanticRegistry()
 	reg.MustRegister(info, created, resourceVersion, lbType, peerKey, labels)
 
-	create := event.CreateEvent{
-		Object: lb,
-		Meta:   lb.GetObjectMeta(),
-	}
+	create := event.CreateEvent{Object: lb}
 	deleted := event.DeleteEvent{
 		Object:             lb,
-		Meta:               lb.GetObjectMeta(),
 		DeleteStateUnknown: false,
 	}
 

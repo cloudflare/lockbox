@@ -52,9 +52,6 @@ func (in *Lockbox) UnlockInto(secret *corev1.Secret, pri nacl.Key) error {
 	sender := new([keySize]byte)
 	copy(sender[:], in.Spec.Sender)
 
-	secret.Labels = in.Spec.Template.Labels
-	secret.Annotations = in.Spec.Template.Annotations
-
 	data := make(map[string][]byte, len(in.Spec.Data))
 	for key, val := range in.Spec.Data {
 		d, err := box.EasyOpen(val, sender, pri)
@@ -67,6 +64,8 @@ func (in *Lockbox) UnlockInto(secret *corev1.Secret, pri nacl.Key) error {
 
 	secret.Data = data
 	secret.Type = in.Spec.Template.Type
+	secret.Labels = in.Spec.Template.Labels
+	secret.Annotations = in.Spec.Template.Annotations
 
 	return nil
 }

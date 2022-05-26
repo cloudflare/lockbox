@@ -12,7 +12,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -45,7 +44,7 @@ func NewSecretReconciler(pubKey, priKey nacl.Key, options ...SecretReconcilerOpt
 	sr := &SecretReconciler{
 		pubKey:   pubKey,
 		priKey:   priKey,
-		client:   clientfake.NewFakeClient(),
+		client:   clientfake.NewClientBuilder().Build(),
 		recorder: &record.FakeRecorder{},
 	}
 
@@ -57,8 +56,7 @@ func NewSecretReconciler(pubKey, priKey nacl.Key, options ...SecretReconcilerOpt
 }
 
 // Reconcile implements reconcile.Reconciler by ensuring Lockbox controlled Secrets are as described.
-func (s *SecretReconciler) Reconcile(req reconcile.Request) (reconcile.Result, error) {
-	ctx := context.TODO()
+func (s *SecretReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	lb := &lockboxv1.Lockbox{}
 	err := s.client.Get(ctx, req.NamespacedName, lb)
 	if errors.IsNotFound(err) {
@@ -126,7 +124,7 @@ func (s *SecretReconciler) Reconcile(req reconcile.Request) (reconcile.Result, e
 		return reconcile.Result{}, fmt.Errorf("incorrect namespace: %s, should be %s", namespace, lb.Namespace)
 	}
 
-	_, err = controllerutil.CreateOrUpdate(
+	_, err = controllerutil.CreateOrPatch(
 		ctx,
 		s.client,
 		secret,
@@ -147,7 +145,7 @@ func (s *SecretReconciler) Reconcile(req reconcile.Request) (reconcile.Result, e
 // to reflect the desired state.
 func (s *SecretReconciler) reconcileExisting(lb *lockboxv1.Lockbox, sender nacl.Key, secret *corev1.Secret) func() error {
 	return func() error {
-		if err := controllerutil.SetControllerReference(lb, secret, scheme.Scheme); err != nil {
+		if err := controllerutil.SetControllerReference(lb, secret, s.client.Scheme()); err != nil {
 			switch err := err.(type) {
 			case decryptSecretKeyErrorer:
 				s.recorder.Eventf(lb, "Warning", "InvalidLockbox", "lockbox contained key %q that could not be unlocked", err.SecretKey())

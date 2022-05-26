@@ -1,9 +1,12 @@
 package flagvar
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
+
+var ErrInvalidEnum = errors.New("invalid enum option")
 
 type Enum struct {
 	Choices []string
@@ -22,7 +25,7 @@ func (e *Enum) Set(v string) error {
 		}
 	}
 
-	return fmt.Errorf("must be one of %v", e.Choices)
+	return ErrInvalidEnum
 }
 
 func (e *Enum) String() string {

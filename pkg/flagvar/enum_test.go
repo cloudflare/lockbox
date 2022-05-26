@@ -1,17 +1,16 @@
 package flagvar_test
 
 import (
-	"net"
 	"testing"
 
 	"github.com/cloudflare/lockbox/pkg/flagvar"
 	"gotest.tools/v3/assert"
 )
 
-func TestTCPAddrString(t *testing.T) {
+func TestEnumString(t *testing.T) {
 	type testCase struct {
 		name     string
-		fv       *flagvar.TCPAddr
+		fv       *flagvar.Enum
 		expected string
 	}
 
@@ -23,8 +22,8 @@ func TestTCPAddrString(t *testing.T) {
 	testCases := []testCase{
 		{
 			name:     "non-nil receiver",
-			fv:       &flagvar.TCPAddr{Text: ":8080"},
-			expected: ":8080",
+			fv:       &flagvar.Enum{Value: "yaml"},
+			expected: "yaml",
 		},
 		{
 			name:     "nil receiver",
@@ -41,54 +40,42 @@ func TestTCPAddrString(t *testing.T) {
 	}
 }
 
-func TestTCPAddrSet(t *testing.T) {
+func TestEnumSet(t *testing.T) {
 	type testCase struct {
 		name     string
 		input    string
-		expected *net.TCPAddr
-		err      string
+		expected string
+		err      error
 	}
 
 	run := func(t *testing.T, tc testCase) {
-		fv := flagvar.TCPAddr{}
+		fv := &flagvar.Enum{
+			Choices: []string{"yaml", "json"},
+		}
 		err := fv.Set(tc.input)
 
 		if err != nil {
-			assert.Error(t, err, tc.err)
+			assert.ErrorIs(t, err, tc.err)
 		} else {
-			assert.DeepEqual(t, fv.Value, tc.expected)
+			assert.Equal(t, fv.Value, tc.expected)
 		}
 	}
 
 	testCases := []testCase{
 		{
-			name:  "host:port address",
-			input: "127.0.0.1:8080",
-			expected: &net.TCPAddr{
-				IP:   net.ParseIP("127.0.0.1"),
-				Port: 8080,
-			},
+			name:     "valid enum option",
+			input:    "yaml",
+			expected: "yaml",
 		},
 		{
-			name:  "port-only address",
-			input: ":8080",
-			expected: &net.TCPAddr{
-				Port: 8080,
-			},
+			name:     "ignores option capitalization",
+			input:    "YaMl",
+			expected: "yaml",
 		},
 		{
-			name:  "IPv6 support",
-			input: "[::1]:8080",
-			expected: &net.TCPAddr{
-				IP:   net.ParseIP("::1"),
-				Port: 8080,
-			},
-		},
-		{
-			name:     "invalid address",
-			input:    "google.com",
-			expected: nil,
-			err:      "address google.com: missing port in address",
+			name:  "invalid enum option",
+			input: "cue",
+			err:   flagvar.ErrInvalidEnum,
 		},
 	}
 
