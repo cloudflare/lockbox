@@ -11,9 +11,9 @@ import (
 	gruntime "runtime"
 	"time"
 
-	"github.com/butonic/zerologr"
 	lockboxv1 "github.com/cloudflare/lockbox/pkg/apis/lockbox.k8s.cloudflare.com/v1"
 	"github.com/cloudflare/lockbox/pkg/flagvar"
+	"github.com/go-logr/zerologr"
 	"github.com/kevinburke/nacl"
 	"github.com/kevinburke/nacl/box"
 	"github.com/rs/zerolog"
@@ -24,7 +24,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	rlog "sigs.k8s.io/controller-runtime/pkg/log"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var (
@@ -58,13 +58,13 @@ func main() {
 		os.Exit(0)
 	}
 
-	logger := zerolog.New(os.Stderr)
-	log := zerologr.NewWithOptions(zerologr.Options{
-		Logger: &logger,
-	})
-	rlog.SetLogger(log)
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
+	zerologr.NameFieldName = "logger"
+	zerologr.NameSeparator = "/"
 
-	logger = logger.With().Str("name", "main").Logger()
+	zl := zerolog.New(os.Stderr).With().Caller().Timestamp().Logger()
+	logf.SetLogger(zerologr.New(&zl))
+	logger := zl.With().Str("name", "main").Logger()
 
 	err := lockboxv1.Install(scheme.Scheme)
 	if err != nil {
@@ -179,8 +179,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	w.Write(ob)
-	w.Write([]byte("\n"))
+	if _, err := w.Write(ob); err != nil {
+		logger.Fatal().Err(err).Send()
+	}
+	if _, err := w.WriteString("\n"); err != nil {
+		logger.Fatal().Err(err).Send()
+	}
 }
 
 func GetConfig() clientcmd.ClientConfig {

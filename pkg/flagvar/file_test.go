@@ -1,21 +1,27 @@
 package flagvar_test
 
 import (
-	"os"
+	"io/fs"
 	"path/filepath"
 	"testing"
 
 	"github.com/cloudflare/lockbox/pkg/flagvar"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
+	"gotest.tools/v3/assert"
 )
 
 func TestFileString(t *testing.T) {
-	tests := []struct {
+	type testCase struct {
 		name     string
 		fv       *flagvar.File
 		expected string
-	}{
+	}
+
+	run := func(t *testing.T, tc testCase) {
+		actual := tc.fv.String()
+		assert.Equal(t, actual, tc.expected)
+	}
+
+	testCases := []testCase{
 		{
 			name:     "non-nil receiver",
 			fv:       &flagvar.File{Value: "/path/to/default.log"},
@@ -28,50 +34,50 @@ func TestFileString(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if diff := cmp.Diff(tt.fv.String(), tt.expected); diff != "" {
-				t.Errorf("unexpected string returned: (+want -got)\n%s", diff)
-			}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			run(t, tc)
 		})
 	}
 }
 
 func TestFileSet(t *testing.T) {
-	tests := []struct {
-		name string
-		path string
-		err  error
-	}{
+	type testCase struct {
+		name     string
+		input    string
+		expected string
+		err      error
+	}
+
+	run := func(t *testing.T, tc testCase) {
+		fv := &flagvar.File{}
+
+		err := fv.Set(tc.input)
+		if tc.err != nil {
+			assert.ErrorIs(t, err, tc.err)
+		} else {
+			assert.Equal(t, fv.Value, tc.expected)
+		}
+	}
+
+	testCases := []testCase{
 		{
-			name: "file exists",
-			path: filepath.Join("testdata", "file"),
+			name:     "file exists",
+			input:    filepath.Join("testdata", "file"),
+			expected: "testdata/file",
 		},
 		{
-			name: "file does not exist",
-			path: filepath.Join("testdata", "file_nonexistant.go"),
-			err: &os.PathError{
-				Op:   "stat",
-				Path: filepath.Join("testdata", "file_nonexistant.go"),
-			},
+			name:  "file does not exist",
+			input: filepath.Join("testdata", "file_nonexistant.go"),
+			err:   fs.ErrNotExist,
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			fv := &flagvar.File{}
-
-			opts := []cmp.Option{
-				cmpopts.IgnoreFields(os.PathError{}, "Err"),
-			}
-
-			if diff := cmp.Diff(fv.Set(tt.path), tt.err, opts...); diff != "" {
-				t.Errorf("unexpected error returned: (+want -got)\n%s", diff)
-			}
-
-			if diff := cmp.Diff(fv.String(), tt.path); diff != "" {
-				t.Errorf("unexpected string returned: (+want -got)\n%s", diff)
-			}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			run(t, tc)
 		})
 	}
 }

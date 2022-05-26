@@ -11,6 +11,6 @@ import (
 func PublicKey(pubKey nacl.Key) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Write(pubKey[:])
+		_, _ = w.Write(pubKey[:])
 	})
 }

@@ -6,46 +6,70 @@ import (
 
 	lockboxv1 "github.com/cloudflare/lockbox/pkg/apis/lockbox.k8s.cloudflare.com/v1"
 	controller "github.com/cloudflare/lockbox/pkg/lockbox-controller"
-	"github.com/cloudflare/lockbox/pkg/util/conditions"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kevinburke/nacl"
+	"gotest.tools/v3/assert"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 func TestSecretReconciler(t *testing.T) {
-	pubKey, priKey, err := loadKeypair(t, "6a42b9fc2b011fb88c01741483e3bffe455bdab1ae35d0bb53a3c00d406d8836", "252173f975f0a0ddb198a7e5958c074203a0e9f44275e0b840f95d456c4acc2e")
-	if err != nil {
-		t.Fatalf("unexpected error loading keypair: %v", err)
+	type testCase struct {
+		name        string
+		lockboxName string
+		resources   []client.Object
+		expected    *corev1.Secret
+		expectedErr string
 	}
 
-	corev1.AddToScheme(scheme.Scheme)
-	lockboxv1.Install(scheme.Scheme)
+	run := func(t *testing.T, tc testCase) {
+		scheme := runtime.NewScheme()
+		assert.NilError(t, corev1.AddToScheme(scheme))
+		assert.NilError(t, lockboxv1.Install(scheme))
 
-	isController := true
-	blockOwnerDeletion := true
+		client := clientfake.NewClientBuilder().
+			WithObjects(tc.resources...).
+			WithScheme(scheme).
+			Build()
 
-	tests := []struct {
-		name              string
-		client            client.Client
-		request           reconcile.Request
-		result            reconcile.Result
-		expectedSecret    corev1.Secret
-		expectedCondition *lockboxv1.Condition
-		expectedErr       error
-	}{
+		pubKey, priKey, err := loadKeypair(t, "6a42b9fc2b011fb88c01741483e3bffe455bdab1ae35d0bb53a3c00d406d8836", "252173f975f0a0ddb198a7e5958c074203a0e9f44275e0b840f95d456c4acc2e")
+		assert.NilError(t, err)
+
+		lsn := types.NamespacedName{Name: tc.lockboxName, Namespace: "example"}
+		sr := controller.NewSecretReconciler(pubKey, priKey, controller.WithClient(client))
+
+		_, err = sr.Reconcile(context.Background(), reconcile.Request{NamespacedName: lsn})
+		if tc.expectedErr != "" {
+			assert.ErrorContains(t, err, tc.expectedErr)
+		} else {
+			assert.NilError(t, err)
+		}
+
+		actual := &corev1.Secret{}
+		err = client.Get(context.Background(), lsn, actual)
+
+		if tc.expected == nil {
+			assert.Assert(t, apierrors.IsNotFound(err))
+			return
+		}
+
+		assert.NilError(t, err)
+		assert.DeepEqual(t, actual, tc.expected)
+	}
+
+	testCases := []testCase{
 		{
-			name: "new lockbox",
-			client: func() client.Client {
-				lb := &lockboxv1.Lockbox{
+			name:        "new lockbox",
+			lockboxName: "example",
+			resources: []client.Object{
+				&lockboxv1.Lockbox{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "example",
 						Namespace: "example",
@@ -76,18 +100,9 @@ func TestSecretReconciler(t *testing.T) {
 							"test1": {0x2c, 0x68, 0xed, 0x53, 0x55, 0x55, 0xe2, 0x2d, 0x71, 0x96, 0x85, 0xfd, 0xdb, 0x93, 0x1e, 0x77, 0x91, 0x2d, 0x76, 0xba, 0xae, 0x46, 0x30, 0x9e, 0xb6, 0x65, 0xa2, 0x49, 0xfe, 0x78, 0xc0, 0xcb, 0x6d, 0xf, 0xa8, 0xeb, 0xa8, 0xfc, 0xc0, 0xa0, 0xdc, 0x4, 0x16, 0x7, 0xa0},
 						},
 					},
-				}
-
-				return clientfake.NewFakeClient(lb)
-			}(),
-			request: reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: "example",
-					Name:      "example",
 				},
 			},
-			result: reconcile.Result{},
-			expectedSecret: corev1.Secret{
+			expected: &corev1.Secret{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "Secret",
 					APIVersion: "v1",
@@ -107,8 +122,8 @@ func TestSecretReconciler(t *testing.T) {
 							APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 							Kind:               "Lockbox",
 							Name:               "example",
-							Controller:         &isController,
-							BlockOwnerDeletion: &blockOwnerDeletion,
+							Controller:         pointer.Bool(true),
+							BlockOwnerDeletion: pointer.Bool(true),
 						},
 					},
 				},
@@ -118,12 +133,12 @@ func TestSecretReconciler(t *testing.T) {
 					"test1": []byte("test1"),
 				},
 			},
-			expectedCondition: conditions.TrueCondition(lockboxv1.ReadyCondition),
 		},
 		{
-			name: "update lockbox secret",
-			client: func() client.Client {
-				lb := &lockboxv1.Lockbox{
+			name:        "update lockbox secret",
+			lockboxName: "example",
+			resources: []client.Object{
+				&lockboxv1.Lockbox{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "example",
 						Namespace: "example",
@@ -139,66 +154,66 @@ func TestSecretReconciler(t *testing.T) {
 							Type: v1.SecretTypeOpaque,
 						},
 					},
-				}
-				secret := &corev1.Secret{
+				},
+				&corev1.Secret{
+					TypeMeta: metav1.TypeMeta{
+						Kind:       "Secret",
+						APIVersion: "v1",
+					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "example",
 						Namespace: "example",
+						Labels: map[string]string{
+							"type": "secret",
+						},
+						Annotations: map[string]string{
+							"wave": "ignore",
+						},
+						ResourceVersion: "1",
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 								Kind:               "Lockbox",
 								Name:               "example",
-								Controller:         &isController,
-								BlockOwnerDeletion: &blockOwnerDeletion,
+								Controller:         pointer.Bool(true),
+								BlockOwnerDeletion: pointer.Bool(true),
 							},
 						},
 					},
+					Type: v1.SecretTypeOpaque,
 					Data: map[string][]byte{
 						"test":  []byte("test"),
 						"test1": []byte("test1"),
 					},
-				}
-
-				return clientfake.NewFakeClient(lb, secret)
-			}(),
-			request: reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: "example",
-					Name:      "example",
 				},
 			},
-			result: reconcile.Result{},
-			expectedSecret: corev1.Secret{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "Secret",
-					APIVersion: "v1",
-				},
+			expected: &corev1.Secret{
+				TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:            "example",
 					Namespace:       "example",
-					ResourceVersion: "1",
+					ResourceVersion: "2",
 					OwnerReferences: []metav1.OwnerReference{
 						{
 							APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 							Kind:               "Lockbox",
 							Name:               "example",
-							Controller:         &isController,
-							BlockOwnerDeletion: &blockOwnerDeletion,
+							Controller:         pointer.Bool(true),
+							BlockOwnerDeletion: pointer.Bool(true),
 						},
 					},
 				},
-				Type: v1.SecretTypeOpaque,
+				Type: corev1.SecretTypeOpaque,
 				Data: map[string][]byte{
 					"updated": []byte("yep"),
 				},
 			},
-			expectedCondition: conditions.TrueCondition(lockboxv1.ReadyCondition),
 		},
 		{
-			name: "avoids updating secrets owned by other controllers",
-			client: func() client.Client {
-				lb := &lockboxv1.Lockbox{
+			name:        "secret conflict",
+			lockboxName: "example",
+			resources: []client.Object{
+				&lockboxv1.Lockbox{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "example",
 						Namespace: "example",
@@ -211,97 +226,62 @@ func TestSecretReconciler(t *testing.T) {
 							"updated": {0x78, 0x70, 0x68, 0xae, 0x9f, 0xf5, 0xed, 0x60, 0x74, 0x14, 0x6a, 0xc5, 0xc3, 0xb, 0xe2, 0xaa, 0x20, 0x68, 0x7a, 0xfb, 0xa6, 0x6a, 0x38, 0xc2, 0x20, 0x73, 0xb5, 0x45, 0x9f, 0x9, 0xf0, 0x15, 0xd1, 0x5c, 0x16, 0x51, 0x50, 0xaa, 0xea, 0x68, 0x3a, 0x95, 0xe6},
 						},
 					},
-				}
-				secret := &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "example",
-						Namespace: "example",
-						OwnerReferences: []metav1.OwnerReference{
-							{
-								APIVersion:         "bitnami.com/v1alpha1",
-								Kind:               "SealedSecret",
-								Name:               "example",
-								Controller:         &isController,
-								BlockOwnerDeletion: &blockOwnerDeletion,
-							},
-						},
-					},
-					Data: map[string][]byte{
-						"test":  []byte("test"),
-						"test1": []byte("test1"),
-					},
-				}
-
-				return clientfake.NewFakeClient(lb, secret)
-			}(),
-			request: reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: "example",
-					Name:      "example",
 				},
-			},
-			result: reconcile.Result{},
-			expectedSecret: corev1.Secret{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "Secret",
-					APIVersion: "v1",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "example",
-					Namespace: "example",
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion:         "bitnami.com/v1alpha1",
-							Kind:               "SealedSecret",
-							Name:               "example",
-							Controller:         &isController,
-							BlockOwnerDeletion: &blockOwnerDeletion,
-						},
-					},
-				},
-				Data: map[string][]byte{
-					"test":  []byte("test"),
-					"test1": []byte("test1"),
-				},
-			},
-			expectedErr: &controllerutil.AlreadyOwnedError{
-				Object: &corev1.Secret{
+				&corev1.Secret{
 					TypeMeta: metav1.TypeMeta{
 						Kind:       "Secret",
 						APIVersion: "v1",
 					},
 					ObjectMeta: metav1.ObjectMeta{
-						Name:      "example",
-						Namespace: "example",
+						Name:            "example",
+						Namespace:       "example",
+						ResourceVersion: "1",
 						OwnerReferences: []metav1.OwnerReference{
 							{
 								APIVersion:         "bitnami.com/v1alpha1",
 								Kind:               "SealedSecret",
 								Name:               "example",
-								Controller:         &isController,
-								BlockOwnerDeletion: &blockOwnerDeletion,
+								Controller:         pointer.Bool(true),
+								BlockOwnerDeletion: pointer.Bool(true),
 							},
 						},
 					},
+					Type: v1.SecretTypeOpaque,
 					Data: map[string][]byte{
 						"test":  []byte("test"),
 						"test1": []byte("test1"),
 					},
 				},
-				Owner: metav1.OwnerReference{
-					APIVersion:         "bitnami.com/v1alpha1",
-					Kind:               "SealedSecret",
-					Name:               "example",
-					Controller:         &isController,
-					BlockOwnerDeletion: &blockOwnerDeletion,
+			},
+			expected: &corev1.Secret{
+				TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "example",
+					Namespace:       "example",
+					ResourceVersion: "1",
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion:         "bitnami.com/v1alpha1",
+							Kind:               "SealedSecret",
+							Name:               "example",
+							Controller:         pointer.Bool(true),
+							BlockOwnerDeletion: pointer.Bool(true),
+						},
+					},
+				},
+				Type: v1.SecretTypeOpaque,
+				Data: map[string][]byte{
+					"test":  []byte("test"),
+					"test1": []byte("test1"),
 				},
 			},
-			expectedCondition: conditions.FalseCondition(lockboxv1.ReadyCondition, "InvalidLockbox", lockboxv1.ConditionSeverityWarning, "Object example/example is already owned by another SealedSecret controller example"),
+			expectedErr: "already owned by another SealedSecret controller example",
 		},
 		{
-			name: "creates docker-registry secret",
-			client: func() client.Client {
-				lb := &lockboxv1.Lockbox{
+			name:        "docker-registry secret",
+			lockboxName: "example",
+			resources: []client.Object{
+				&lockboxv1.Lockbox{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "example",
 						Namespace: "example",
@@ -317,18 +297,9 @@ func TestSecretReconciler(t *testing.T) {
 							Type: corev1.SecretTypeDockerConfigJson,
 						},
 					},
-				}
-
-				return clientfake.NewFakeClient(lb)
-			}(),
-			request: reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Namespace: "example",
-					Name:      "example",
 				},
 			},
-			result: reconcile.Result{},
-			expectedSecret: corev1.Secret{
+			expected: &corev1.Secret{
 				TypeMeta: metav1.TypeMeta{
 					Kind:       "Secret",
 					APIVersion: "v1",
@@ -342,8 +313,8 @@ func TestSecretReconciler(t *testing.T) {
 							APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 							Kind:               "Lockbox",
 							Name:               "example",
-							Controller:         &isController,
-							BlockOwnerDeletion: &blockOwnerDeletion,
+							Controller:         pointer.Bool(true),
+							BlockOwnerDeletion: pointer.Bool(true),
 						},
 					},
 				},
@@ -352,46 +323,13 @@ func TestSecretReconciler(t *testing.T) {
 					".dockerconfigjson": {0x65, 0x79, 0x4a, 0x68, 0x64, 0x58, 0x52, 0x6f, 0x63, 0x79, 0x49, 0x36, 0x65, 0x79, 0x4a, 0x6b, 0x62, 0x32, 0x4e, 0x72, 0x5a, 0x58, 0x49, 0x75, 0x5a, 0x58, 0x68, 0x68, 0x62, 0x58, 0x42, 0x73, 0x5a, 0x53, 0x35, 0x6a, 0x62, 0x32, 0x30, 0x69, 0x4f, 0x6e, 0x73, 0x69, 0x56, 0x58, 0x4e, 0x6c, 0x63, 0x6d, 0x35, 0x68, 0x62, 0x57, 0x55, 0x69, 0x4f, 0x69, 0x4a, 0x71, 0x62, 0x32, 0x56, 0x6b, 0x5a, 0x58, 0x5a, 0x6c, 0x62, 0x47, 0x39, 0x77, 0x5a, 0x58, 0x49, 0x69, 0x4c, 0x43, 0x4a, 0x51, 0x59, 0x58, 0x4e, 0x7a, 0x64, 0x32, 0x39, 0x79, 0x5a, 0x43, 0x49, 0x36, 0x49, 0x6e, 0x42, 0x68, 0x63, 0x33, 0x4e, 0x33, 0x62, 0x33, 0x4a, 0x6b, 0x49, 0x69, 0x77, 0x69, 0x52, 0x57, 0x31, 0x68, 0x61, 0x57, 0x77, 0x69, 0x4f, 0x69, 0x4a, 0x71, 0x62, 0x32, 0x56, 0x41, 0x5a, 0x58, 0x68, 0x68, 0x62, 0x58, 0x42, 0x73, 0x5a, 0x53, 0x35, 0x6a, 0x62, 0x32, 0x30, 0x69, 0x66, 0x58, 0x31, 0x39},
 				},
 			},
-			expectedCondition: conditions.TrueCondition(lockboxv1.ReadyCondition),
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sr := controller.NewSecretReconciler(pubKey, priKey, controller.WithClient(tt.client))
-
-			result, err := sr.Reconcile(tt.request)
-			if diff := cmp.Diff(err, tt.expectedErr); diff != "" {
-				t.Errorf("unexpected err from reconcile: (+want -got)\n%s", diff)
-			}
-
-			if diff := cmp.Diff(result, tt.result); diff != "" {
-				t.Errorf("unexpected reconciliation result: (+want -got)\n%s", diff)
-			}
-
-			secret := corev1.Secret{}
-			tt.client.Get(context.TODO(), client.ObjectKey{
-				Name:      "example",
-				Namespace: "example",
-			}, &secret)
-
-			if diff := cmp.Diff(secret, tt.expectedSecret); diff != "" {
-				t.Errorf("unexpected secret state: (+want -got)\n%s", diff)
-			}
-
-			lb := lockboxv1.Lockbox{}
-			tt.client.Get(context.TODO(), client.ObjectKey{
-				Name:      tt.request.Name,
-				Namespace: tt.request.Namespace,
-			}, &lb)
-
-			opts := []cmp.Option{
-				cmpopts.IgnoreFields(lockboxv1.Condition{}, "LastTransitionTime"),
-			}
-
-			if diff := cmp.Diff(conditions.Get(&lb, lockboxv1.ReadyCondition), tt.expectedCondition, opts...); diff != "" {
-				t.Errorf("unexpected Lockbox condition: (+want -got)\n%s", diff)
-			}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			run(t, tc)
 		})
 	}
 }

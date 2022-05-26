@@ -4,9 +4,8 @@ import (
 	"encoding/hex"
 
 	lockboxv1 "github.com/cloudflare/lockbox/pkg/apis/lockbox.k8s.cloudflare.com/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/util/workqueue"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 )
@@ -38,7 +37,7 @@ func NewStateMetricProxy(enqueuer handler.EventHandler, info, created, resourceV
 
 // Create implements EventHandler.
 func (s *StateMetricProxy) Create(evt event.CreateEvent, q workqueue.RateLimitingInterface) {
-	s.updateWith(evt.Meta, evt.Object)
+	s.updateWith(evt.Object)
 
 	if s.enqueuer != nil {
 		s.enqueuer.Create(evt, q)
@@ -47,7 +46,7 @@ func (s *StateMetricProxy) Create(evt event.CreateEvent, q workqueue.RateLimitin
 
 // Update implements EventHandler.
 func (s *StateMetricProxy) Update(evt event.UpdateEvent, q workqueue.RateLimitingInterface) {
-	s.updateWith(evt.MetaNew, evt.ObjectNew)
+	s.updateWith(evt.ObjectNew)
 
 	if s.enqueuer != nil {
 		s.enqueuer.Update(evt, q)
@@ -56,7 +55,7 @@ func (s *StateMetricProxy) Update(evt event.UpdateEvent, q workqueue.RateLimitin
 
 // Delete implements EventHandler.
 func (s *StateMetricProxy) Delete(evt event.DeleteEvent, q workqueue.RateLimitingInterface) {
-	uid := evt.Meta.GetUID()
+	uid := evt.Object.GetUID()
 
 	s.info.Delete(uid)
 	s.created.Delete(uid)
@@ -78,24 +77,24 @@ func (s *StateMetricProxy) Generic(evt event.GenericEvent, q workqueue.RateLimit
 }
 
 // updateWith updates the metrics for Create and Update handles.
-func (s *StateMetricProxy) updateWith(meta metav1.Object, obj runtime.Object) {
-	namespace := meta.GetNamespace()
-	lockbox := meta.GetName()
-	uid := meta.GetUID()
+func (s *StateMetricProxy) updateWith(obj client.Object) {
+	namespace := obj.GetNamespace()
+	lockbox := obj.GetName()
+	uid := obj.GetUID()
 
 	s.info.WithLabelValues(uid, namespace, lockbox).Set(1)
-	creationTime := meta.GetCreationTimestamp()
+	creationTime := obj.GetCreationTimestamp()
 	if !creationTime.IsZero() {
 		s.created.WithLabelValues(uid, namespace, lockbox).Set(float64(creationTime.Unix()))
 	}
-	s.resourceVersion.WithLabelValues(uid, namespace, lockbox, meta.GetResourceVersion()).Set(1)
+	s.resourceVersion.WithLabelValues(uid, namespace, lockbox, obj.GetResourceVersion()).Set(1)
 
 	if lb, ok := obj.(*lockboxv1.Lockbox); ok {
 		s.lbType.WithLabelValues(uid, namespace, lockbox, string(lb.Spec.Template.Type)).Set(1)
 		s.peerKey.WithLabelValues(uid, namespace, lockbox, hex.EncodeToString(lb.Spec.Peer)).Set(1)
 	}
 
-	promLabels := kubernetesLabelsToPrometheusLabels(meta.GetLabels())
+	promLabels := kubernetesLabelsToPrometheusLabels(obj.GetLabels())
 	promLabels["namespace"] = namespace
 	promLabels["lockbox"] = lockbox
 

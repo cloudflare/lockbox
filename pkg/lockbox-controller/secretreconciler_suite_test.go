@@ -1,53 +1,42 @@
+//go:build suite
 // +build suite
 
 package controller_test
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	lockboxv1 "github.com/cloudflare/lockbox/pkg/apis/lockbox.k8s.cloudflare.com/v1"
 	. "github.com/cloudflare/lockbox/pkg/lockbox-controller"
-	"github.com/google/go-cmp/cmp"
+	"github.com/go-logr/zerologr"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/rs/zerolog"
+	"gotest.tools/v3/assert"
+	"gotest.tools/v3/poll"
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	"k8s.io/utils/pointer"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
 var cfg *rest.Config
 
 func TestMain(m *testing.M) {
+	zl := zerolog.New(os.Stderr)
+	logf.SetLogger(zerologr.New(&zl))
 	t := &envtest.Environment{
-		CRDs: []*apiextensionsv1beta1.CustomResourceDefinition{
-			&apiextensionsv1beta1.CustomResourceDefinition{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "sealedsecrets.bitnami.com",
-				},
-				Spec: apiextensionsv1beta1.CustomResourceDefinitionSpec{
-					Group:   "bitnami.com",
-					Scope:   apiextensionsv1beta1.NamespaceScoped,
-					Version: "v1beta1",
-					Names: apiextensionsv1beta1.CustomResourceDefinitionNames{
-						Kind:     "SealedSecret",
-						ListKind: "SealedSecretList",
-						Plural:   "sealedsecrets",
-						Singular: "sealedsecret",
-					},
-				},
-			},
-		},
 		CRDDirectoryPaths: []string{filepath.Join("..", "..", "deployment", "crds")},
 	}
 	lockboxv1.Install(scheme.Scheme)
@@ -63,30 +52,93 @@ func TestMain(m *testing.M) {
 }
 
 func TestSuiteSecretReconciler(t *testing.T) {
-	pubKey, priKey, err := loadKeypair(t, "6a42b9fc2b011fb88c01741483e3bffe455bdab1ae35d0bb53a3c00d406d8836", "252173f975f0a0ddb198a7e5958c074203a0e9f44275e0b840f95d456c4acc2e")
-	if err != nil {
-		t.Fatalf("unexpected error loading keypair: %v", err)
+	type testCase struct {
+		name        string
+		lockboxName string
+		resources   []client.Object
+		expected    *corev1.Secret
 	}
 
-	corev1.AddToScheme(scheme.Scheme)
-	lockboxv1.Install(scheme.Scheme)
+	pubKey, priKey, err := loadKeypair(t, "6a42b9fc2b011fb88c01741483e3bffe455bdab1ae35d0bb53a3c00d406d8836", "252173f975f0a0ddb198a7e5958c074203a0e9f44275e0b840f95d456c4acc2e")
+	assert.NilError(t, err)
 
-	isController := true
-	blockOwnerDeletion := true
+	setup := func(t *testing.T, tc testCase) {
+		mgr, err := manager.New(cfg, manager.Options{
+			MetricsBindAddress: "0",
+			Scheme:             scheme.Scheme,
+		})
+		assert.NilError(t, err)
 
-	tests := []struct {
-		name           string
-		setup          func(client.Client) error
-		teardown       func(client.Client) error
-		expectedSecret corev1.Secret
-	}{
+		sr := NewSecretReconciler(pubKey, priKey, WithClient(mgr.GetClient()))
+		err = builder.
+			ControllerManagedBy(mgr).
+			For(&lockboxv1.Lockbox{}).
+			Owns(&corev1.Secret{}).
+			Complete(sr)
+		assert.NilError(t, err)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			mgr.Start(ctx)
+		}()
+		t.Cleanup(cancel)
+	}
+
+	run := func(t *testing.T, tc testCase) {
+		c, err := client.New(cfg, client.Options{})
+		assert.NilError(t, err)
+
+		for _, r := range tc.resources {
+			c.Create(context.Background(), r)
+		}
+
+		secret := &corev1.Secret{}
+		poll.WaitOn(t, func(t poll.LogT) poll.Result {
+			err := c.Get(context.Background(), client.ObjectKey{
+				Name:      "example",
+				Namespace: "default",
+			}, secret)
+
+			if err == nil {
+				return poll.Success()
+			}
+
+			if apierrors.IsNotFound(err) {
+				return poll.Continue("secret was not found")
+			}
+
+			return poll.Error(err)
+		})
+
+		cm := &corev1.ConfigMap{}
+		c.Get(context.Background(), client.ObjectKey{
+			Name:      "example",
+			Namespace: "default",
+		}, cm)
+
+		fmt.Printf("cm: %+v\n", *cm)
+
+		assert.DeepEqual(t, secret, tc.expected,
+			cmpopts.IgnoreFields(metav1.ObjectMeta{}, "UID", "ResourceVersion", "CreationTimestamp", "ManagedFields"),
+			cmpopts.IgnoreFields(metav1.OwnerReference{}, "UID"),
+		)
+
+		for _, r := range tc.resources {
+			c.Delete(context.Background(), r)
+		}
+		// delete the created resource too, as there's no garbage collector
+		c.Delete(context.Background(), tc.expected)
+	}
+
+	testCases := []testCase{
 		{
-			name: "create secret",
-			setup: func(c client.Client) error {
-				lb := &lockboxv1.Lockbox{
+			name:        "create secret",
+			lockboxName: "example",
+			resources: []client.Object{
+				&lockboxv1.Lockbox{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "example",
-						Namespace: "example",
+						Namespace: "default",
 						Labels: map[string]string{
 							"type": "lockbox",
 						},
@@ -95,9 +147,9 @@ func TestSuiteSecretReconciler(t *testing.T) {
 						},
 					},
 					Spec: lockboxv1.LockboxSpec{
-						Sender:    []byte{0xb2, 0xa3, 0xf, 0x85, 0xa, 0x58, 0xcf, 0x94, 0x4c, 0x62, 0x37, 0xd4, 0xef, 0xf5, 0xed, 0x11, 0x52, 0xfa, 0x1b, 0xc3, 0xb0, 0x4d, 0x27, 0xd5, 0x58, 0x67, 0x61, 0x67, 0xe0, 0x10, 0xb1, 0x5c},
-						Peer:      []byte{0x6a, 0x42, 0xb9, 0xfc, 0x2b, 0x1, 0x1f, 0xb8, 0x8c, 0x1, 0x74, 0x14, 0x83, 0xe3, 0xbf, 0xfe, 0x45, 0x5b, 0xda, 0xb1, 0xae, 0x35, 0xd0, 0xbb, 0x53, 0xa3, 0xc0, 0xd, 0x40, 0x6d, 0x88, 0x36},
-						Namespace: []byte{0x4d, 0xa0, 0x73, 0x8b, 0x95, 0xc3, 0xd4, 0x64, 0xe9, 0xab, 0xd, 0xb7, 0x1e, 0x5, 0x10, 0xed, 0x4c, 0x2f, 0x8a, 0x66, 0x6d, 0xec, 0x7c, 0x5d, 0x9b, 0xa7, 0xb7, 0x88, 0x49, 0x8a, 0xb9, 0x7f, 0xf0, 0x30, 0xe0, 0xad, 0x49, 0x7c, 0x3f, 0xe3, 0x1c, 0x2e, 0xe9, 0xb1, 0x2a, 0x70, 0x28},
+						Sender:    []byte{0x74, 0xbd, 0xd8, 0x82, 0xf7, 0xd5, 0x87, 0xde, 0x08, 0x79, 0xf0, 0x9b, 0x35, 0x15, 0xf5, 0x2d, 0x1f, 0xb0, 0x26, 0xb3, 0x20, 0xe1, 0xe1, 0xd8, 0x5c, 0x5a, 0x0e, 0x1d, 0xfb, 0x80, 0x87, 0x23},
+						Peer:      []byte{0x6a, 0x42, 0xb9, 0xfc, 0x2b, 0x01, 0x1f, 0xb8, 0x8c, 0x01, 0x74, 0x14, 0x83, 0xe3, 0xbf, 0xfe, 0x45, 0x5b, 0xda, 0xb1, 0xae, 0x35, 0xd0, 0xbb, 0x53, 0xa3, 0xc0, 0x0d, 0x40, 0x6d, 0x88, 0x36},
+						Namespace: []byte{0x3a, 0x1a, 0x82, 0xd1, 0xad, 0x9f, 0x89, 0x6b, 0x59, 0x8e, 0xce, 0x45, 0xbc, 0x6f, 0x61, 0x34, 0x81, 0x7b, 0x7e, 0x2f, 0xa4, 0xd7, 0x15, 0xaf, 0x28, 0x15, 0xc0, 0x3e, 0x21, 0xfc, 0xcb, 0x3a, 0x38, 0x60, 0x96, 0xc7, 0xac, 0xe6, 0x56, 0xf2, 0xb7, 0x40, 0x4e, 0x9e, 0xb4, 0xbf, 0x96},
 						Template: lockboxv1.LockboxSecretTemplate{
 							ObjectMeta: metav1.ObjectMeta{
 								Labels: map[string]string{
@@ -109,110 +161,53 @@ func TestSuiteSecretReconciler(t *testing.T) {
 							},
 						},
 						Data: map[string][]byte{
-							"test":  {0x7b, 0xca, 0x32, 0x90, 0xf7, 0x97, 0x3b, 0x6, 0xfb, 0x7c, 0xdc, 0x3a, 0x25, 0x82, 0x29, 0xdf, 0x9d, 0x1e, 0x46, 0x8d, 0xd4, 0x99, 0x49, 0x2, 0x63, 0x56, 0x54, 0x64, 0xae, 0x9e, 0xf2, 0xc0, 0x35, 0xf5, 0xf1, 0xcb, 0x67, 0xb7, 0xe2, 0xb1, 0x14, 0x42, 0x71, 0xc},
-							"test1": {0x2c, 0x68, 0xed, 0x53, 0x55, 0x55, 0xe2, 0x2d, 0x71, 0x96, 0x85, 0xfd, 0xdb, 0x93, 0x1e, 0x77, 0x91, 0x2d, 0x76, 0xba, 0xae, 0x46, 0x30, 0x9e, 0xb6, 0x65, 0xa2, 0x49, 0xfe, 0x78, 0xc0, 0xcb, 0x6d, 0xf, 0xa8, 0xeb, 0xa8, 0xfc, 0xc0, 0xa0, 0xdc, 0x4, 0x16, 0x7, 0xa0},
+							"test": {0x57, 0x17, 0x83, 0x22, 0x4c, 0x54, 0x1a, 0xb8, 0x83, 0x86, 0xc6, 0x15, 0xed, 0x23, 0x10, 0x58, 0x1d, 0xbc, 0x20, 0x47, 0xb4, 0x2a, 0x7f, 0xf6, 0xda, 0x4e, 0xa4, 0x88, 0x6b, 0x54, 0xed, 0xf6, 0xa3, 0x21, 0x73, 0xda, 0xca, 0x2b, 0xf7, 0x88, 0x13, 0xaa, 0xc2, 0xef},
 						},
 					},
-				}
-
-				return c.Create(context.TODO(), lb)
-			},
-			teardown: func(c client.Client) error {
-				if err := c.Delete(context.TODO(), &lockboxv1.Lockbox{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "example",
-						Namespace: "example",
-					},
-				}); err != nil {
-					return err
-				}
-
-				return c.Delete(context.TODO(), &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "example",
-						Namespace: "example",
-					},
-				})
-			},
-			expectedSecret: corev1.Secret{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "v1",
-					Kind:       "Secret",
 				},
+			},
+			expected: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "example",
-					Namespace: "example",
+					Namespace: "default",
 					Labels: map[string]string{
 						"type": "secret",
 					},
 					Annotations: map[string]string{
 						"wave": "ignore",
 					},
-					SelfLink: "/api/v1/namespaces/example/secrets/example",
 					OwnerReferences: []metav1.OwnerReference{
 						{
 							APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 							Kind:               "Lockbox",
 							Name:               "example",
-							Controller:         &isController,
-							BlockOwnerDeletion: &blockOwnerDeletion,
+							Controller:         pointer.Bool(true),
+							BlockOwnerDeletion: pointer.Bool(true),
 						},
 					},
 				},
 				Type: corev1.SecretTypeOpaque,
 				Data: map[string][]byte{
-					"test":  []byte("test"),
-					"test1": []byte("test1"),
+					"test": []byte("test"),
 				},
 			},
 		},
 		{
-			name: "avoids updating secrets owned by other controllers",
-			setup: func(c client.Client) error {
-				ss := &unstructured.Unstructured{}
-				ss.SetName("example")
-				ss.SetNamespace("example")
-				ss.SetAPIVersion("bitnami.com/v1beta1")
-				ss.SetKind("SealedSecret")
-
-				if err := c.Create(context.TODO(), ss); err != nil {
-					return err
-				}
-				<-time.After(1 * time.Second)
-
-				if err := c.Get(context.TODO(), client.ObjectKey{
-					Name:      "example",
-					Namespace: "example",
-				}, ss); err != nil {
-					return err
-				}
-
-				lb := &lockboxv1.Lockbox{
+			name:        "avoids updating secrets owned by other controllers",
+			lockboxName: "example",
+			resources: []client.Object{
+				&corev1.Secret{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "example",
-						Namespace: "example",
-					},
-					Spec: lockboxv1.LockboxSpec{
-						Sender:    []byte{0xa, 0xda, 0x33, 0xf3, 0x48, 0xad, 0xb6, 0x4c, 0xaa, 0x6, 0x50, 0xc1, 0xe1, 0xa6, 0xeb, 0x49, 0x13, 0xe0, 0x53, 0xdf, 0xde, 0x44, 0x72, 0xd6, 0xe2, 0x51, 0x94, 0xee, 0xcb, 0xba, 0xc1, 0x4},
-						Peer:      []byte{0x6a, 0x42, 0xb9, 0xfc, 0x2b, 0x1, 0x1f, 0xb8, 0x8c, 0x1, 0x74, 0x14, 0x83, 0xe3, 0xbf, 0xfe, 0x45, 0x5b, 0xda, 0xb1, 0xae, 0x35, 0xd0, 0xbb, 0x53, 0xa3, 0xc0, 0xd, 0x40, 0x6d, 0x88, 0x36},
-						Namespace: []byte{0xa7, 0x4c, 0x72, 0x7a, 0x71, 0x1d, 0x98, 0x32, 0xa, 0x3, 0xbe, 0xe5, 0x9d, 0xd4, 0x8c, 0x39, 0x3, 0x42, 0x9c, 0x5e, 0xeb, 0x6d, 0x95, 0x46, 0x5c, 0x10, 0x62, 0xa3, 0xa7, 0xfb, 0xee, 0x19, 0xcb, 0x98, 0xbf, 0xc1, 0x19, 0x66, 0x6a, 0x77, 0x76, 0x22, 0x17, 0x8f, 0xa5, 0x24, 0x8e},
-						Data: map[string][]byte{
-							"updated": {0x78, 0x70, 0x68, 0xae, 0x9f, 0xf5, 0xed, 0x60, 0x74, 0x14, 0x6a, 0xc5, 0xc3, 0xb, 0xe2, 0xaa, 0x20, 0x68, 0x7a, 0xfb, 0xa6, 0x6a, 0x38, 0xc2, 0x20, 0x73, 0xb5, 0x45, 0x9f, 0x9, 0xf0, 0x15, 0xd1, 0x5c, 0x16, 0x51, 0x50, 0xaa, 0xea, 0x68, 0x3a, 0x95, 0xe6},
-						},
-					},
-				}
-				secret := &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "example",
-						Namespace: "example",
+						Namespace: "default",
 						OwnerReferences: []metav1.OwnerReference{
 							{
-								APIVersion:         "bitnami.com/v1alpha1",
-								Kind:               "SealedSecret",
+								APIVersion:         "v1",
+								Kind:               "ConfigMap",
 								Name:               "example",
-								UID:                ss.GetUID(),
-								Controller:         &isController,
-								BlockOwnerDeletion: &blockOwnerDeletion,
+								UID:                "deadbeef",
+								Controller:         pointer.Bool(true),
+								BlockOwnerDeletion: pointer.Bool(true),
 							},
 						},
 					},
@@ -220,57 +215,33 @@ func TestSuiteSecretReconciler(t *testing.T) {
 						"test":  []byte("test"),
 						"test1": []byte("test1"),
 					},
-				}
-
-				if err := c.Create(context.TODO(), secret); err != nil {
-					return err
-				}
-				<-time.After(1 * time.Second)
-
-				return c.Create(context.TODO(), lb)
-			},
-			teardown: func(c client.Client) error {
-				if err := c.Delete(context.TODO(), &lockboxv1.Lockbox{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "example",
-						Namespace: "example",
-					},
-				}); err != nil {
-					return err
-				}
-
-				if err := c.Delete(context.TODO(), &corev1.Secret{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "example",
-						Namespace: "example",
-					},
-				}); err != nil {
-					return err
-				}
-
-				ss := &unstructured.Unstructured{}
-				ss.SetName("example")
-				ss.SetNamespace("example")
-				ss.SetAPIVersion("bitnami.com/v1beta1")
-				ss.SetKind("SealedSecret")
-				return c.Delete(context.TODO(), ss)
-			},
-			expectedSecret: corev1.Secret{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: "v1",
-					Kind:       "Secret",
 				},
+				&lockboxv1.Lockbox{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "example",
+						Namespace: "default",
+					},
+					Spec: lockboxv1.LockboxSpec{
+						Sender:    []byte{0x74, 0xbd, 0xd8, 0x82, 0xf7, 0xd5, 0x87, 0xde, 0x08, 0x79, 0xf0, 0x9b, 0x35, 0x15, 0xf5, 0x2d, 0x1f, 0xb0, 0x26, 0xb3, 0x20, 0xe1, 0xe1, 0xd8, 0x5c, 0x5a, 0x0e, 0x1d, 0xfb, 0x80, 0x87, 0x23},
+						Peer:      []byte{0x6a, 0x42, 0xb9, 0xfc, 0x2b, 0x01, 0x1f, 0xb8, 0x8c, 0x01, 0x74, 0x14, 0x83, 0xe3, 0xbf, 0xfe, 0x45, 0x5b, 0xda, 0xb1, 0xae, 0x35, 0xd0, 0xbb, 0x53, 0xa3, 0xc0, 0x0d, 0x40, 0x6d, 0x88, 0x36},
+						Namespace: []byte{0x3a, 0x1a, 0x82, 0xd1, 0xad, 0x9f, 0x89, 0x6b, 0x59, 0x8e, 0xce, 0x45, 0xbc, 0x6f, 0x61, 0x34, 0x81, 0x7b, 0x7e, 0x2f, 0xa4, 0xd7, 0x15, 0xaf, 0x28, 0x15, 0xc0, 0x3e, 0x21, 0xfc, 0xcb, 0x3a, 0x38, 0x60, 0x96, 0xc7, 0xac, 0xe6, 0x56, 0xf2, 0xb7, 0x40, 0x4e, 0x9e, 0xb4, 0xbf, 0x96},
+						Data: map[string][]byte{
+							"test": {0x57, 0x17, 0x83, 0x22, 0x4c, 0x54, 0x1a, 0xb8, 0x83, 0x86, 0xc6, 0x15, 0xed, 0x23, 0x10, 0x58, 0x1d, 0xbc, 0x20, 0x47, 0xb4, 0x2a, 0x7f, 0xf6, 0xda, 0x4e, 0xa4, 0x88, 0x6b, 0x54, 0xed, 0xf6, 0xa3, 0x21, 0x73, 0xda, 0xca, 0x2b, 0xf7, 0x88, 0x13, 0xaa, 0xc2, 0xef},
+						},
+					},
+				},
+			},
+			expected: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "example",
-					Namespace: "example",
-					SelfLink:  "/api/v1/namespaces/example/secrets/example",
+					Namespace: "default",
 					OwnerReferences: []metav1.OwnerReference{
 						{
-							APIVersion:         "bitnami.com/v1alpha1",
-							Kind:               "SealedSecret",
+							APIVersion:         "v1",
+							Kind:               "ConfigMap",
 							Name:               "example",
-							Controller:         &isController,
-							BlockOwnerDeletion: &blockOwnerDeletion,
+							Controller:         pointer.Bool(true),
+							BlockOwnerDeletion: pointer.Bool(true),
 						},
 					},
 				},
@@ -283,60 +254,12 @@ func TestSuiteSecretReconciler(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			mgr, err := manager.New(cfg, manager.Options{
-				Scheme: scheme.Scheme,
-			})
-			if err != nil {
-				t.Fatalf("Unexpected error while creating manager: %v", err)
-			}
-
-			c := mgr.GetClient()
-
-			sr := NewSecretReconciler(pubKey, priKey, WithClient(c))
-			err = builder.
-				ControllerManagedBy(mgr).
-				For(&lockboxv1.Lockbox{}).
-				Owns(&corev1.Secret{}).
-				Complete(sr)
-			if err != nil {
-				t.Fatalf("Unexpected error while creating controller: %v", err)
-			}
-
-			go func() {
-				mgr.Start(ctx.Done())
-			}()
-
-			if err := tt.setup(c); err != nil {
-				t.Fatalf("Failed setting up API: %v\n", err)
-			}
-
-			defer func() {
-				if err := tt.teardown(c); err != nil {
-					t.Errorf("teardown error: %v", err)
-				}
-				<-time.After(1 * time.Second)
-			}()
-
-			<-time.After(1 * time.Second)
-			secret := corev1.Secret{}
-			c.Get(context.TODO(), client.ObjectKey{
-				Name:      "example",
-				Namespace: "example",
-			}, &secret)
-
-			opts := []cmp.Option{
-				cmpopts.IgnoreFields(metav1.ObjectMeta{}, "UID", "ResourceVersion", "CreationTimestamp", "ManagedFields"),
-				cmpopts.IgnoreFields(metav1.OwnerReference{}, "UID"),
-			}
-
-			if diff := cmp.Diff(secret, tt.expectedSecret, opts...); diff != "" {
-				t.Errorf("unexpected secret state: (+want -got)\n%s", diff)
-			}
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			setup(t, tc)
+			run(t, tc)
 		})
 	}
+
 }

@@ -7,8 +7,8 @@ jobs:
   publish-docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
-      - uses: nixbuild/nix-quick-install-action@v4
+      - uses: actions/checkout@v3
+      - uses: nixbuild/nix-quick-install-action@v13
       - run: nix-build ./hack/docker.nix -o docker-amd64
       - run: nix-build ./hack/docker.nix --arg pkgs '(import ./hack/nixpkgs.nix {}).pkgsCross.aarch64-multiplatform' -o docker-arm64
       - run: |
