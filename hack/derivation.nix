@@ -7,7 +7,7 @@ let
 in {
   lockbox = pkgs.buildGo117Module rec {
     pname = "lockbox";
-    version = "0.5.0";
+    version = "0.6.0";
 
     src = srcs;
     ldflags = [ "-X main.version=${version}" ];
@@ -18,7 +18,7 @@ in {
   };
   locket = pkgs.buildGo117Module rec {
     pname = "locket";
-    version = "0.5.0";
+    version = "0.6.0";
 
     src = srcs;
     ldflags = [ "-X main.version=${version}" ];
