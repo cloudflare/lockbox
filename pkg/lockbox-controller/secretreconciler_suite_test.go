@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 )
 
 var cfg *rest.Config
@@ -39,7 +40,7 @@ func TestMain(m *testing.M) {
 	t := &envtest.Environment{
 		CRDDirectoryPaths: []string{filepath.Join("..", "..", "deployment", "crds")},
 	}
-	lockboxv1.Install(scheme.Scheme)
+	lockboxv1.AddToScheme(scheme.Scheme)
 
 	var err error
 	if cfg, err = t.Start(); err != nil {
@@ -64,8 +65,10 @@ func TestSuiteSecretReconciler(t *testing.T) {
 
 	setup := func(t *testing.T, tc testCase) {
 		mgr, err := manager.New(cfg, manager.Options{
-			MetricsBindAddress: "0",
-			Scheme:             scheme.Scheme,
+			Metrics: metricsserver.Options{
+				BindAddress: "0",
+			},
+			Scheme: scheme.Scheme,
 		})
 		assert.NilError(t, err)
 
@@ -151,7 +154,7 @@ func TestSuiteSecretReconciler(t *testing.T) {
 						Peer:      []byte{0x6a, 0x42, 0xb9, 0xfc, 0x2b, 0x01, 0x1f, 0xb8, 0x8c, 0x01, 0x74, 0x14, 0x83, 0xe3, 0xbf, 0xfe, 0x45, 0x5b, 0xda, 0xb1, 0xae, 0x35, 0xd0, 0xbb, 0x53, 0xa3, 0xc0, 0x0d, 0x40, 0x6d, 0x88, 0x36},
 						Namespace: []byte{0x3a, 0x1a, 0x82, 0xd1, 0xad, 0x9f, 0x89, 0x6b, 0x59, 0x8e, 0xce, 0x45, 0xbc, 0x6f, 0x61, 0x34, 0x81, 0x7b, 0x7e, 0x2f, 0xa4, 0xd7, 0x15, 0xaf, 0x28, 0x15, 0xc0, 0x3e, 0x21, 0xfc, 0xcb, 0x3a, 0x38, 0x60, 0x96, 0xc7, 0xac, 0xe6, 0x56, 0xf2, 0xb7, 0x40, 0x4e, 0x9e, 0xb4, 0xbf, 0x96},
 						Template: lockboxv1.LockboxSecretTemplate{
-							ObjectMeta: metav1.ObjectMeta{
+							LockboxSecretTemplateMetadata: lockboxv1.LockboxSecretTemplateMetadata{
 								Labels: map[string]string{
 									"type": "secret",
 								},

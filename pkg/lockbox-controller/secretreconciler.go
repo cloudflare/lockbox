@@ -19,6 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
+//go:generate controller-gen rbac:roleName=lockbox-controller paths=./. output:rbac:artifacts:config=../../deployment/rbac
+
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;patch;update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="lockbox.k8s.cloudflare.com",resources=lockboxes,verbs=get;list;watch

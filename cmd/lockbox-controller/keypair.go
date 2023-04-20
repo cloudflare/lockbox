@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"io/ioutil"
 
 	"github.com/kevinburke/nacl"
 	"sigs.k8s.io/yaml"
@@ -16,7 +15,7 @@ type kp struct {
 
 // KeyPairFromYAMLOrJSON loads a public/private NaCL keypair from a YAML or JSON file.
 func KeyPairFromYAMLOrJSON(r io.Reader) (pub, pri nacl.Key, err error) {
-	data, err := ioutil.ReadAll(r)
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -27,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
@@ -67,7 +69,7 @@ func main() {
 	}
 	keypair.Close()
 
-	err = lockboxv1.Install(scheme.Scheme)
+	err = lockboxv1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("unable to add lockbox schemes")
 		os.Exit(1)
@@ -82,9 +84,13 @@ func main() {
 	}
 
 	mgr, err := manager.New(cfg, manager.Options{
-		MetricsBindAddress: metricsAddr.Text,
-		SyncPeriod:         &syncPeriod,
-		Scheme:             scheme.Scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: metricsAddr.Text,
+		},
+		Cache: cache.Options{
+			SyncPeriod: &syncPeriod,
+		},
+		Scheme: scheme.Scheme,
 	})
 	if err != nil {
 		logger.Fatal().Err(err).Msg("unable to create controller manager")
@@ -137,15 +143,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := c.Watch(&source.Kind{Type: &lockboxv1.Lockbox{}}, mh); err != nil {
+	if err := c.Watch(source.Kind(mgr.GetCache(), &lockboxv1.Lockbox{}), mh); err != nil {
 		logger.Fatal().Err(err).Msg("unable to watch Lockbox resources")
 		os.Exit(1)
 	}
 
-	if err := c.Watch(&source.Kind{Type: &corev1.Secret{}}, &handler.EnqueueRequestForOwner{
-		OwnerType:    &lockboxv1.Lockbox{},
-		IsController: true,
-	}); err != nil {
+	if err := c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}), handler.EnqueueRequestForOwner(scheme.Scheme, mgr.GetRESTMapper(), &lockboxv1.Lockbox{}, handler.OnlyControllerOwner())); err != nil {
 		logger.Fatal().Err(err).Msg("unable to watch Secret resources")
 		os.Exit(1)
 	}

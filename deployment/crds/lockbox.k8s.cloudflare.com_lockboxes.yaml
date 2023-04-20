@@ -3,8 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: (devel)
-  creationTimestamp: null
+    controller-gen.kubebuilder.io/version: v0.13.0
   name: lockboxes.lockbox.k8s.cloudflare.com
 spec:
   group: lockbox.k8s.cloudflare.com
@@ -74,19 +73,20 @@ spec:
                       annotations:
                         additionalProperties:
                           type: string
+                        description: 'Annotations is an unstructured key value map
+                          stored with a resource that may be set by external tools
+                          to store and retrieve arbitrary metadata. They are not queryable
+                          and should be preserved when modifying objects. More info:
+                          http://kubernetes.io/docs/user-guide/annotations'
                         type: object
-                      finalizers:
-                        items:
-                          type: string
-                        type: array
                       labels:
                         additionalProperties:
                           type: string
+                        description: 'Map of string keys and values that can be used
+                          to organize and categorize (scope and select) objects. May
+                          match selectors of replication controllers and services.
+                          More info: http://kubernetes.io/docs/user-guide/labels'
                         type: object
-                      name:
-                        type: string
-                      namespace:
-                        type: string
                     type: object
                   type:
                     description: Type is used to facilitate programmatic handling
@@ -154,9 +154,3 @@ spec:
     storage: true
     subresources:
       status: {}
-status:
-  acceptedNames:
-    kind: ""
-    plural: ""
-  conditions: []
-  storedVersions: []

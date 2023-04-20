@@ -25,7 +25,7 @@ func NewFromSecret(secret corev1.Secret, namespace string, peer, pub, pri nacl.K
 			Namespace: encNS,
 			Data:      map[string][]byte{},
 			Template: LockboxSecretTemplate{
-				ObjectMeta: metav1.ObjectMeta{
+				LockboxSecretTemplateMetadata: LockboxSecretTemplateMetadata{
 					Labels:      secret.ObjectMeta.Labels,
 					Annotations: secret.ObjectMeta.Annotations,
 				},

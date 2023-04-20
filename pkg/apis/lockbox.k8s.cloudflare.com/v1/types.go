@@ -5,7 +5,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="SecretType",type=string,JSONPath=`.spec.template.type`
 // +kubebuilder:printcolumn:name="Peer",type=string,JSONPath=`.spec.peer`
@@ -51,10 +51,26 @@ type LockboxSpec struct {
 // LockboxSecretTemplate defines structure of API metadata fields
 // of Secrets controlled by a Lockbox.
 type LockboxSecretTemplate struct {
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	LockboxSecretTemplateMetadata `json:"metadata,omitempty"`
 
 	// Type is used to facilitate programmatic handling of secret data.
 	Type corev1.SecretType `json:"type,omitempty"`
+}
+
+type LockboxSecretTemplateMetadata struct {
+	// Map of string keys and values that can be used to organize and categorize
+	// (scope and select) objects. May match selectors of replication
+	// controllers and services. More info:
+	// http://kubernetes.io/docs/user-guide/labels
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// Annotations is an unstructured key value map stored with a resource that
+	// may be set by external tools to store and retrieve arbitrary metadata.
+	// They are not queryable and should be preserved when modifying objects.
+	// More info: http://kubernetes.io/docs/user-guide/annotations
+	// +optional
+	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
 // LockboxStatus contains status information about a Lockbox.
@@ -113,7 +129,7 @@ const (
 	ConditionSeverityNone    ConditionSeverity = ""
 )
 
-//+k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=true
 
 // LockboxList is a Lockbox-specific version of metav1.List.
 type LockboxList struct {

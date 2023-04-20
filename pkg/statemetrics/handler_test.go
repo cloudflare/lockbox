@@ -1,6 +1,7 @@
 package statemetrics
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestStateMetricsProxy_Create(t *testing.T) {
 	evt := event.CreateEvent{Object: lb}
 
 	handler := NewStateMetricProxy(nil, info, created, resourceVersion, lbType, peerKey, labels)
-	handler.Create(evt, nil)
+	handler.Create(context.Background(), evt, nil)
 
 	expected := strings.NewReader(`
 # HELP kube_lockbox_info Information about Lockbox
@@ -116,8 +117,8 @@ func TestStateMetricsProxy_Update(t *testing.T) {
 	}
 
 	handler := NewStateMetricProxy(nil, info, created, resourceVersion, lbType, peerKey, labels)
-	handler.Create(create, nil)
-	handler.Update(upd, nil)
+	handler.Create(context.Background(), create, nil)
+	handler.Update(context.Background(), upd, nil)
 
 	expected := strings.NewReader(`
 # HELP kube_lockbox_info Information about Lockbox
@@ -176,8 +177,8 @@ func TestStateMetricsProxy_Delete(t *testing.T) {
 	}
 
 	handler := NewStateMetricProxy(nil, info, created, resourceVersion, lbType, peerKey, labels)
-	handler.Create(create, nil)
-	handler.Delete(deleted, nil)
+	handler.Create(context.Background(), create, nil)
+	handler.Delete(context.Background(), deleted, nil)
 
 	expected := &strings.Reader{}
 

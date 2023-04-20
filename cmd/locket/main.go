@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	gruntime "runtime"
 	"time"
@@ -66,7 +65,7 @@ func main() {
 	logf.SetLogger(zerologr.New(&zl))
 	logger := zl.With().Str("name", "main").Logger()
 
-	err := lockboxv1.Install(scheme.Scheme)
+	err := lockboxv1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("unable to add lockbox schemes")
 		os.Exit(1)
@@ -89,7 +88,7 @@ func main() {
 
 	cf := runtimeserializer.NewCodecFactory(scheme.Scheme)
 
-	ib, err := ioutil.ReadAll(r)
+	ib, err := io.ReadAll(r)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("unable to read secret file")
 		os.Exit(1)
@@ -171,7 +170,7 @@ func main() {
 	if info.PrettySerializer != nil {
 		serial = info.PrettySerializer
 	}
-	enc := cf.EncoderForVersion(serial, lockboxv1.SchemeGroupVersion)
+	enc := cf.EncoderForVersion(serial, lockboxv1.GroupVersion)
 
 	ob, err := runtime.Encode(enc, b)
 	if err != nil {

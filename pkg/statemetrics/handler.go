@@ -1,6 +1,7 @@
 package statemetrics
 
 import (
+	"context"
 	"encoding/hex"
 
 	lockboxv1 "github.com/cloudflare/lockbox/pkg/apis/lockbox.k8s.cloudflare.com/v1"
@@ -36,25 +37,25 @@ func NewStateMetricProxy(enqueuer handler.EventHandler, info, created, resourceV
 }
 
 // Create implements EventHandler.
-func (s *StateMetricProxy) Create(evt event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (s *StateMetricProxy) Create(ctx context.Context, evt event.CreateEvent, q workqueue.RateLimitingInterface) {
 	s.updateWith(evt.Object)
 
 	if s.enqueuer != nil {
-		s.enqueuer.Create(evt, q)
+		s.enqueuer.Create(ctx, evt, q)
 	}
 }
 
 // Update implements EventHandler.
-func (s *StateMetricProxy) Update(evt event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (s *StateMetricProxy) Update(ctx context.Context, evt event.UpdateEvent, q workqueue.RateLimitingInterface) {
 	s.updateWith(evt.ObjectNew)
 
 	if s.enqueuer != nil {
-		s.enqueuer.Update(evt, q)
+		s.enqueuer.Update(ctx, evt, q)
 	}
 }
 
 // Delete implements EventHandler.
-func (s *StateMetricProxy) Delete(evt event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (s *StateMetricProxy) Delete(ctx context.Context, evt event.DeleteEvent, q workqueue.RateLimitingInterface) {
 	uid := evt.Object.GetUID()
 
 	s.info.Delete(uid)
@@ -65,14 +66,14 @@ func (s *StateMetricProxy) Delete(evt event.DeleteEvent, q workqueue.RateLimitin
 	s.labels.Delete(uid)
 
 	if s.enqueuer != nil {
-		s.enqueuer.Delete(evt, q)
+		s.enqueuer.Delete(ctx, evt, q)
 	}
 }
 
 // Generic implements EventHandler.
-func (s *StateMetricProxy) Generic(evt event.GenericEvent, q workqueue.RateLimitingInterface) {
+func (s *StateMetricProxy) Generic(ctx context.Context, evt event.GenericEvent, q workqueue.RateLimitingInterface) {
 	if s.enqueuer != nil {
-		s.enqueuer.Generic(evt, q)
+		s.enqueuer.Generic(ctx, evt, q)
 	}
 }
 
