@@ -9,7 +9,6 @@ import (
 	"github.com/kevinburke/nacl"
 	"gotest.tools/v3/assert"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -32,7 +31,7 @@ func TestSecretReconciler(t *testing.T) {
 	run := func(t *testing.T, tc testCase) {
 		scheme := runtime.NewScheme()
 		assert.NilError(t, corev1.AddToScheme(scheme))
-		assert.NilError(t, lockboxv1.Install(scheme))
+		assert.NilError(t, lockboxv1.AddToScheme(scheme))
 
 		client := clientfake.NewClientBuilder().
 			WithObjects(tc.resources...).
@@ -93,7 +92,7 @@ func TestSecretReconciler(t *testing.T) {
 									"wave": "ignore",
 								},
 							},
-							Type: v1.SecretTypeOpaque,
+							Type: corev1.SecretTypeOpaque,
 						},
 						Data: map[string][]byte{
 							"test":  {0x7b, 0xca, 0x32, 0x90, 0xf7, 0x97, 0x3b, 0x6, 0xfb, 0x7c, 0xdc, 0x3a, 0x25, 0x82, 0x29, 0xdf, 0x9d, 0x1e, 0x46, 0x8d, 0xd4, 0x99, 0x49, 0x2, 0x63, 0x56, 0x54, 0x64, 0xae, 0x9e, 0xf2, 0xc0, 0x35, 0xf5, 0xf1, 0xcb, 0x67, 0xb7, 0xe2, 0xb1, 0x14, 0x42, 0x71, 0xc},
@@ -127,7 +126,7 @@ func TestSecretReconciler(t *testing.T) {
 						},
 					},
 				},
-				Type: v1.SecretTypeOpaque,
+				Type: corev1.SecretTypeOpaque,
 				Data: map[string][]byte{
 					"test":  []byte("test"),
 					"test1": []byte("test1"),
@@ -151,7 +150,7 @@ func TestSecretReconciler(t *testing.T) {
 							"updated": {0x78, 0x70, 0x68, 0xae, 0x9f, 0xf5, 0xed, 0x60, 0x74, 0x14, 0x6a, 0xc5, 0xc3, 0xb, 0xe2, 0xaa, 0x20, 0x68, 0x7a, 0xfb, 0xa6, 0x6a, 0x38, 0xc2, 0x20, 0x73, 0xb5, 0x45, 0x9f, 0x9, 0xf0, 0x15, 0xd1, 0x5c, 0x16, 0x51, 0x50, 0xaa, 0xea, 0x68, 0x3a, 0x95, 0xe6},
 						},
 						Template: lockboxv1.LockboxSecretTemplate{
-							Type: v1.SecretTypeOpaque,
+							Type: corev1.SecretTypeOpaque,
 						},
 					},
 				},
@@ -180,7 +179,7 @@ func TestSecretReconciler(t *testing.T) {
 							},
 						},
 					},
-					Type: v1.SecretTypeOpaque,
+					Type: corev1.SecretTypeOpaque,
 					Data: map[string][]byte{
 						"test":  []byte("test"),
 						"test1": []byte("test1"),
@@ -246,7 +245,7 @@ func TestSecretReconciler(t *testing.T) {
 							},
 						},
 					},
-					Type: v1.SecretTypeOpaque,
+					Type: corev1.SecretTypeOpaque,
 					Data: map[string][]byte{
 						"test":  []byte("test"),
 						"test1": []byte("test1"),
@@ -269,7 +268,7 @@ func TestSecretReconciler(t *testing.T) {
 						},
 					},
 				},
-				Type: v1.SecretTypeOpaque,
+				Type: corev1.SecretTypeOpaque,
 				Data: map[string][]byte{
 					"test":  []byte("test"),
 					"test1": []byte("test1"),

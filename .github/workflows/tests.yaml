@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: nixbuild/nix-quick-install-action@v13
-      - run: nix-shell --pure --run "golangci-lint run --timeout 15m"
+      - run: nix-shell --pure --run "staticcheck ./..."
   integration:
     needs:
       - unit

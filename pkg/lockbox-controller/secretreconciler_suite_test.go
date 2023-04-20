@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 	t := &envtest.Environment{
 		CRDDirectoryPaths: []string{filepath.Join("..", "..", "deployment", "crds")},
 	}
-	lockboxv1.Install(scheme.Scheme)
+	lockboxv1.AddToScheme(scheme.Scheme)
 
 	var err error
 	if cfg, err = t.Start(); err != nil {

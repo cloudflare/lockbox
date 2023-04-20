@@ -5,7 +5,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="SecretType",type=string,JSONPath=`.spec.template.type`
 // +kubebuilder:printcolumn:name="Peer",type=string,JSONPath=`.spec.peer`
@@ -113,7 +113,7 @@ const (
 	ConditionSeverityNone    ConditionSeverity = ""
 )
 
-//+k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+// +kubebuilder:object:root=k8s.io/apimachinery/pkg/runtime.Object
 
 // LockboxList is a Lockbox-specific version of metav1.List.
 type LockboxList struct {

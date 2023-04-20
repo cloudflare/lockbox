@@ -67,7 +67,7 @@ func main() {
 	}
 	keypair.Close()
 
-	err = lockboxv1.Install(scheme.Scheme)
+	err = lockboxv1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("unable to add lockbox schemes")
 		os.Exit(1)

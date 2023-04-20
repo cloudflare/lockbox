@@ -2,10 +2,10 @@
 
 let
   srcs = lib.sourceFilesBySuffices ../. [ ".go" ".mod" ".sum" ];
-  v256 = "1p1v43zxm4g2fra20l5p704y0p7rmgqiyffx392w5g5r22hgxjyg";
+  v256 = "sha256-ztGHplIcejWeFSJS3Ykd702L8/RJcmQ9jstJeVHtL38=";
 
 in {
-  lockbox = pkgs.buildGo117Module rec {
+  lockbox = pkgs.buildGoModule rec {
     pname = "lockbox";
     version = "0.6.0";
 
