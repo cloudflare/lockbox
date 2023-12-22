@@ -16,3 +16,4 @@
 ## nix.gitignore ##
 
 /result*
+/bin/

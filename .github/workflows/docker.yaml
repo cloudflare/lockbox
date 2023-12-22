@@ -1,26 +1,26 @@
 name: Docker
 on:
-  push:
-    tags:
-      - 'v*'
+  - pull_request
+  - push
 jobs:
-  publish-docker:
+  docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: nixbuild/nix-quick-install-action@v14
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/metadata-action@v5
+        id: docker-meta
         with:
-          nix_version: "2.8.1"
-      - run: nix-build ./hack/docker.nix -o docker-amd64
-      - run: nix-build ./hack/docker.nix --arg pkgs '(import ./hack/nixpkgs.nix {}).pkgsCross.aarch64-multiplatform' -o docker-arm64
-      - run: |
-          nix-shell -I ./hack/nixpkgs.nix -p buildah --run bash <<EOF
-          buildah manifest create lockbox
-          buildah manifest add lockbox docker-archive:./docker-amd64
-          buildah manifest add lockbox docker-archive:./docker-arm64
-          buildah manifest inspect lockbox
-          buildah manifest push --all --creds ${DOCKER_HUB_USERNAME}:${DOCKER_HUB_TOKEN} -f v2s2 lockbox docker://cloudflare/lockbox:${GITHUB_REF#refs/tags/}
-          EOF
-        env:
-          DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-          DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
+          images: cloudflare/lockbox
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+      - uses: docker/build-push-action@v5
+        with:
+          file: ./cmd/lockbox-controller/Dockerfile
+          platforms: linux/amd64, linux/arm64
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
