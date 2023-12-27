@@ -9,5 +9,5 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 
 FROM gcr.io/distroless/base-nossl-debian12:nonroot
-COPY --from=builder /go/src/app/bin/lockbox-controller /
+COPY --from=builder /go/src/app/bin/lockbox-controller /bin
 ENTRYPOINT ["/bin/lockbox-controller"]
