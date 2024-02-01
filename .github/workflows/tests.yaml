@@ -5,15 +5,12 @@ on:
 jobs:
   unit:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go: [ 'stable', 'oldstable' ]
-    name: 'Go ${{ matrix.go }} Test'
+    name: "Go ${{ matrix.go }} Test"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: ${{ matrix.go }}
+          go-version: "stable"
       - run: make test
   lint:
     runs-on: ubuntu-latest
@@ -21,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: 'stable'
+          go-version: "stable"
       - uses: dominikh/staticcheck-action@v1
         with:
           build-tags: suite
@@ -35,7 +32,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v4
         with:
-          go-version: 'stable'
+          go-version: "stable"
       - run: |
           go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
           source <(setup-envtest use -p env)

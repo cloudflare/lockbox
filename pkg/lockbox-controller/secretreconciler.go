@@ -10,7 +10,6 @@ import (
 	"github.com/kevinburke/nacl"
 	"github.com/kevinburke/nacl/box"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -58,16 +57,7 @@ func NewSecretReconciler(pubKey, priKey nacl.Key, options ...SecretReconcilerOpt
 }
 
 // Reconcile implements reconcile.Reconciler by ensuring Lockbox controlled Secrets are as described.
-func (s *SecretReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	lb := &lockboxv1.Lockbox{}
-	err := s.client.Get(ctx, req.NamespacedName, lb)
-	if errors.IsNotFound(err) {
-		return reconcile.Result{}, nil
-	}
-	if err != nil {
-		return reconcile.Result{}, err
-	}
-
+func (s *SecretReconciler) Reconcile(ctx context.Context, lb *lockboxv1.Lockbox) (reconcile.Result, error) {
 	if len(lb.Spec.Sender) != keySize {
 		msg := fmt.Sprintf("invalid sender key length, got %d wanted %d", len(lb.Spec.Sender), keySize)
 

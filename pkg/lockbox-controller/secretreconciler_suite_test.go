@@ -23,13 +23,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 var cfg *rest.Config
@@ -77,7 +78,7 @@ func TestSuiteSecretReconciler(t *testing.T) {
 			ControllerManagedBy(mgr).
 			For(&lockboxv1.Lockbox{}).
 			Owns(&corev1.Secret{}).
-			Complete(sr)
+			Complete(reconcile.AsReconciler(mgr.GetClient(), sr))
 		assert.NilError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -184,8 +185,8 @@ func TestSuiteSecretReconciler(t *testing.T) {
 							APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 							Kind:               "Lockbox",
 							Name:               "example",
-							Controller:         pointer.Bool(true),
-							BlockOwnerDeletion: pointer.Bool(true),
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
 						},
 					},
 				},
@@ -209,8 +210,8 @@ func TestSuiteSecretReconciler(t *testing.T) {
 								Kind:               "ConfigMap",
 								Name:               "example",
 								UID:                "deadbeef",
-								Controller:         pointer.Bool(true),
-								BlockOwnerDeletion: pointer.Bool(true),
+								Controller:         ptr.To(true),
+								BlockOwnerDeletion: ptr.To(true),
 							},
 						},
 					},
@@ -243,8 +244,8 @@ func TestSuiteSecretReconciler(t *testing.T) {
 							APIVersion:         "v1",
 							Kind:               "ConfigMap",
 							Name:               "example",
-							Controller:         pointer.Bool(true),
-							BlockOwnerDeletion: pointer.Bool(true),
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
 						},
 					},
 				},

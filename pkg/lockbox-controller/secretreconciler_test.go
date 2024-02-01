@@ -13,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/pointer"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -44,7 +44,7 @@ func TestSecretReconciler(t *testing.T) {
 		lsn := types.NamespacedName{Name: tc.lockboxName, Namespace: "example"}
 		sr := controller.NewSecretReconciler(pubKey, priKey, controller.WithClient(client))
 
-		_, err = sr.Reconcile(context.Background(), reconcile.Request{NamespacedName: lsn})
+		_, err = reconcile.AsReconciler(client, sr).Reconcile(context.Background(), reconcile.Request{NamespacedName: lsn})
 		if tc.expectedErr != "" {
 			assert.ErrorContains(t, err, tc.expectedErr)
 		} else {
@@ -102,10 +102,6 @@ func TestSecretReconciler(t *testing.T) {
 				},
 			},
 			expected: &corev1.Secret{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "Secret",
-					APIVersion: "v1",
-				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "example",
 					Namespace: "example",
@@ -121,8 +117,8 @@ func TestSecretReconciler(t *testing.T) {
 							APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 							Kind:               "Lockbox",
 							Name:               "example",
-							Controller:         pointer.Bool(true),
-							BlockOwnerDeletion: pointer.Bool(true),
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
 						},
 					},
 				},
@@ -155,10 +151,6 @@ func TestSecretReconciler(t *testing.T) {
 					},
 				},
 				&corev1.Secret{
-					TypeMeta: metav1.TypeMeta{
-						Kind:       "Secret",
-						APIVersion: "v1",
-					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      "example",
 						Namespace: "example",
@@ -174,8 +166,8 @@ func TestSecretReconciler(t *testing.T) {
 								APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 								Kind:               "Lockbox",
 								Name:               "example",
-								Controller:         pointer.Bool(true),
-								BlockOwnerDeletion: pointer.Bool(true),
+								Controller:         ptr.To(true),
+								BlockOwnerDeletion: ptr.To(true),
 							},
 						},
 					},
@@ -187,7 +179,6 @@ func TestSecretReconciler(t *testing.T) {
 				},
 			},
 			expected: &corev1.Secret{
-				TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:            "example",
 					Namespace:       "example",
@@ -197,8 +188,8 @@ func TestSecretReconciler(t *testing.T) {
 							APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 							Kind:               "Lockbox",
 							Name:               "example",
-							Controller:         pointer.Bool(true),
-							BlockOwnerDeletion: pointer.Bool(true),
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
 						},
 					},
 				},
@@ -227,10 +218,6 @@ func TestSecretReconciler(t *testing.T) {
 					},
 				},
 				&corev1.Secret{
-					TypeMeta: metav1.TypeMeta{
-						Kind:       "Secret",
-						APIVersion: "v1",
-					},
 					ObjectMeta: metav1.ObjectMeta{
 						Name:            "example",
 						Namespace:       "example",
@@ -240,8 +227,8 @@ func TestSecretReconciler(t *testing.T) {
 								APIVersion:         "bitnami.com/v1alpha1",
 								Kind:               "SealedSecret",
 								Name:               "example",
-								Controller:         pointer.Bool(true),
-								BlockOwnerDeletion: pointer.Bool(true),
+								Controller:         ptr.To(true),
+								BlockOwnerDeletion: ptr.To(true),
 							},
 						},
 					},
@@ -253,7 +240,6 @@ func TestSecretReconciler(t *testing.T) {
 				},
 			},
 			expected: &corev1.Secret{
-				TypeMeta: metav1.TypeMeta{Kind: "Secret", APIVersion: "v1"},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:            "example",
 					Namespace:       "example",
@@ -263,8 +249,8 @@ func TestSecretReconciler(t *testing.T) {
 							APIVersion:         "bitnami.com/v1alpha1",
 							Kind:               "SealedSecret",
 							Name:               "example",
-							Controller:         pointer.Bool(true),
-							BlockOwnerDeletion: pointer.Bool(true),
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
 						},
 					},
 				},
@@ -299,10 +285,6 @@ func TestSecretReconciler(t *testing.T) {
 				},
 			},
 			expected: &corev1.Secret{
-				TypeMeta: metav1.TypeMeta{
-					Kind:       "Secret",
-					APIVersion: "v1",
-				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name:            "example",
 					Namespace:       "example",
@@ -312,8 +294,8 @@ func TestSecretReconciler(t *testing.T) {
 							APIVersion:         "lockbox.k8s.cloudflare.com/v1",
 							Kind:               "Lockbox",
 							Name:               "example",
-							Controller:         pointer.Bool(true),
-							BlockOwnerDeletion: pointer.Bool(true),
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
 						},
 					},
 				},

@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
@@ -135,7 +136,7 @@ func main() {
 	)
 
 	c, err := controller.New("lockbox-controller", mgr, controller.Options{
-		Reconciler: sr,
+		Reconciler: reconcile.AsReconciler(mgr.GetClient(), sr),
 	})
 
 	if err != nil {
