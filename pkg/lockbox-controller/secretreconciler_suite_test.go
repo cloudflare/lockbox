@@ -1,23 +1,17 @@
-//go:build suite
-// +build suite
-
 package controller_test
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"testing"
 
 	lockboxv1 "github.com/cloudflare/lockbox/pkg/apis/lockbox.k8s.cloudflare.com/v1"
 	. "github.com/cloudflare/lockbox/pkg/lockbox-controller"
-	"github.com/go-logr/zerologr"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/rs/zerolog"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/poll"
+	"gotest.tools/v3/skip"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -26,34 +20,15 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-var cfg *rest.Config
-
-func TestMain(m *testing.M) {
-	zl := zerolog.New(os.Stderr)
-	logf.SetLogger(zerologr.New(&zl))
-	t := &envtest.Environment{
-		CRDDirectoryPaths: []string{filepath.Join("..", "..", "deployment", "crds")},
-	}
-	lockboxv1.AddToScheme(scheme.Scheme)
-
-	var err error
-	if cfg, err = t.Start(); err != nil {
-		log.Fatal(err)
-	}
-
-	code := m.Run()
-	t.Stop()
-	os.Exit(code)
-}
-
 func TestSuiteSecretReconciler(t *testing.T) {
+	skip.If(t, os.Getenv("KUBEBUILDER_ASSETS") == "", "no kubebuilder environment")
 	type testCase struct {
 		name        string
 		lockboxName string
@@ -64,28 +39,27 @@ func TestSuiteSecretReconciler(t *testing.T) {
 	pubKey, priKey, err := loadKeypair(t, "6a42b9fc2b011fb88c01741483e3bffe455bdab1ae35d0bb53a3c00d406d8836", "252173f975f0a0ddb198a7e5958c074203a0e9f44275e0b840f95d456c4acc2e")
 	assert.NilError(t, err)
 
-	setup := func(t *testing.T, tc testCase) {
-		mgr, err := manager.New(cfg, manager.Options{
-			Metrics: metricsserver.Options{
-				BindAddress: "0",
-			},
-			Scheme: scheme.Scheme,
-		})
-		assert.NilError(t, err)
+	cfg := envtestConfig(t)
 
+	mgr, err := manager.New(cfg, manager.Options{
+		Metrics: metricsserver.Options{
+			BindAddress: "0",
+		},
+		Scheme: scheme.Scheme,
+	})
+	assert.NilError(t, err)
+	StartTestManager(mgr, t)
+
+	setup := func(t *testing.T, _ testCase) {
 		sr := NewSecretReconciler(pubKey, priKey, WithClient(mgr.GetClient()))
-		err = builder.
+		assert.NilError(t, builder.
 			ControllerManagedBy(mgr).
 			For(&lockboxv1.Lockbox{}).
 			Owns(&corev1.Secret{}).
-			Complete(reconcile.AsReconciler(mgr.GetClient(), sr))
-		assert.NilError(t, err)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		go func() {
-			mgr.Start(ctx)
-		}()
-		t.Cleanup(cancel)
+			WithOptions(controller.TypedOptions[reconcile.Request]{
+				SkipNameValidation: new(true),
+			}).
+			Complete(reconcile.AsReconciler(mgr.GetClient(), sr)))
 	}
 
 	run := func(t *testing.T, tc testCase) {
@@ -93,7 +67,7 @@ func TestSuiteSecretReconciler(t *testing.T) {
 		assert.NilError(t, err)
 
 		for _, r := range tc.resources {
-			c.Create(context.Background(), r)
+			assert.NilError(t, c.Create(context.Background(), r))
 		}
 
 		secret := &corev1.Secret{}
@@ -115,12 +89,10 @@ func TestSuiteSecretReconciler(t *testing.T) {
 		})
 
 		cm := &corev1.ConfigMap{}
-		c.Get(context.Background(), client.ObjectKey{
+		assert.Error(t, c.Get(context.Background(), client.ObjectKey{
 			Name:      "example",
 			Namespace: "default",
-		}, cm)
-
-		fmt.Printf("cm: %+v\n", *cm)
+		}, cm), `configmaps "example" not found`)
 
 		assert.DeepEqual(t, secret, tc.expected,
 			cmpopts.IgnoreFields(metav1.ObjectMeta{}, "UID", "ResourceVersion", "CreationTimestamp", "ManagedFields"),
@@ -128,10 +100,10 @@ func TestSuiteSecretReconciler(t *testing.T) {
 		)
 
 		for _, r := range tc.resources {
-			c.Delete(context.Background(), r)
+			assert.NilError(t, c.Delete(context.Background(), r))
 		}
 		// delete the created resource too, as there's no garbage collector
-		c.Delete(context.Background(), tc.expected)
+		assert.NilError(t, client.IgnoreNotFound(c.Delete(context.Background(), tc.expected)))
 	}
 
 	testCases := []testCase{
@@ -259,11 +231,41 @@ func TestSuiteSecretReconciler(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			setup(t, tc)
 			run(t, tc)
 		})
 	}
 
+}
+
+func envtestConfig(t *testing.T) *rest.Config {
+	t.Helper()
+
+	env := &envtest.Environment{
+		CRDDirectoryPaths: []string{filepath.Join("..", "..", "deployment", "crds")},
+	}
+	assert.NilError(t, lockboxv1.AddToScheme(scheme.Scheme))
+
+	cfg, err := env.Start()
+	assert.NilError(t, err)
+
+	t.Cleanup(func() {
+		assert.NilError(t, env.Stop())
+	})
+
+	return cfg
+}
+
+func StartTestManager(mgr manager.Manager, t *testing.T) {
+	t.Helper()
+
+	var err error
+	go func() {
+		err = mgr.Start(t.Context())
+	}()
+
+	t.Cleanup(func() {
+		assert.NilError(t, err)
+	})
 }

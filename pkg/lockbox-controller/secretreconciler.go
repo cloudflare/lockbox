@@ -11,17 +11,19 @@ import (
 	"github.com/kevinburke/nacl/box"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/recorder"
 )
 
-//go:generate controller-gen rbac:roleName=lockbox-controller paths=./. output:rbac:artifacts:config=../../deployment/rbac
+//go:generate go tool controller-gen rbac:roleName=lockbox-controller paths=./. output:rbac:artifacts:config=../../deployment/rbac
 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;patch;update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups="events.k8s.io",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups="lockbox.k8s.cloudflare.com",resources=lockboxes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="lockbox.k8s.cloudflare.com",resources=lockboxes/status,verbs=get;update;patch
 
@@ -35,7 +37,7 @@ type SecretReconciler struct {
 	pubKey, priKey nacl.Key
 
 	client   client.Client
-	recorder record.EventRecorder
+	recorder recorder.EventRecorder
 }
 
 // NewSecretReconciler creates a reconciler controller for the provided keypair and options.
@@ -46,7 +48,7 @@ func NewSecretReconciler(pubKey, priKey nacl.Key, options ...SecretReconcilerOpt
 		pubKey:   pubKey,
 		priKey:   priKey,
 		client:   clientfake.NewClientBuilder().Build(),
-		recorder: &record.FakeRecorder{},
+		recorder: fakeEventRecorder{},
 	}
 
 	for _, opt := range options {
@@ -61,7 +63,7 @@ func (s *SecretReconciler) Reconcile(ctx context.Context, lb *lockboxv1.Lockbox)
 	if len(lb.Spec.Sender) != keySize {
 		msg := fmt.Sprintf("invalid sender key length, got %d wanted %d", len(lb.Spec.Sender), keySize)
 
-		s.recorder.Eventf(lb, "Warning", "InvalidKeyLength", msg)
+		s.recorder.Eventf(lb, nil, corev1.EventTypeWarning, "InvalidKeyLength", "Reconciling", msg)
 		conditions.Set(lb, conditions.FalseCondition(lockboxv1.ReadyCondition, "InvalidKeyLength", lockboxv1.ConditionSeverityError, msg))
 		_ = s.client.Status().Update(ctx, lb)
 		return reconcile.Result{}, fmt.Errorf("incorrect sender key length: %d, should be %d", len(lb.Spec.Sender), keySize)
@@ -69,7 +71,7 @@ func (s *SecretReconciler) Reconcile(ctx context.Context, lb *lockboxv1.Lockbox)
 	if len(lb.Spec.Peer) != keySize {
 		msg := fmt.Sprintf("invalid peer key length, got %d wanted %d", len(lb.Spec.Peer), keySize)
 
-		s.recorder.Eventf(lb, "Warning", "InvalidKeyLength", msg)
+		s.recorder.Eventf(lb, nil, corev1.EventTypeWarning, "InvalidKeyLength", "Reconciling", msg)
 		conditions.Set(lb, conditions.FalseCondition(lockboxv1.ReadyCondition, "InvalidKeyLength", lockboxv1.ConditionSeverityError, msg))
 		_ = s.client.Status().Update(ctx, lb)
 		return reconcile.Result{}, fmt.Errorf("incorrect peer key length: %d, should be %d", len(lb.Spec.Peer), keySize)
@@ -81,7 +83,7 @@ func (s *SecretReconciler) Reconcile(ctx context.Context, lb *lockboxv1.Lockbox)
 	if !nacl.Verify32(peerKey, s.pubKey) {
 		msg := fmt.Sprintf("lockbox has unknown peer key %q", base64.StdEncoding.EncodeToString(lb.Spec.Peer))
 
-		s.recorder.Eventf(lb, "Warning", "UnknownPeerKey", msg)
+		s.recorder.Eventf(lb, nil, corev1.EventTypeWarning, "UnknownPeerKey", "Reconciling", msg)
 		conditions.Set(lb, conditions.FalseCondition(lockboxv1.ReadyCondition, "UnknownPeerKey", lockboxv1.ConditionSeverityError, msg))
 		_ = s.client.Status().Update(ctx, lb)
 		return reconcile.Result{}, fmt.Errorf("unknown peer key")
@@ -101,7 +103,7 @@ func (s *SecretReconciler) Reconcile(ctx context.Context, lb *lockboxv1.Lockbox)
 	if err != nil {
 		msg := fmt.Sprintf("unable to open lockbox with peer key %q", base64.StdEncoding.EncodeToString(lb.Spec.Peer))
 
-		s.recorder.Eventf(lb, "Warning", "InvalidLockbox", msg)
+		s.recorder.Eventf(lb, nil, corev1.EventTypeWarning, "InvalidLockbox", "Reconciling", msg)
 		conditions.Set(lb, conditions.FalseCondition(lockboxv1.ReadyCondition, "InvalidLockbox", lockboxv1.ConditionSeverityError, msg))
 		_ = s.client.Status().Update(ctx, lb)
 		return reconcile.Result{}, err
@@ -110,7 +112,7 @@ func (s *SecretReconciler) Reconcile(ctx context.Context, lb *lockboxv1.Lockbox)
 	if string(namespace) != lb.Namespace {
 		msg := fmt.Sprintf("locked for namespace %q, found in namespace %s", namespace, lb.Namespace)
 
-		s.recorder.Eventf(lb, "Warning", "InvalidNamespace", msg)
+		s.recorder.Eventf(lb, nil, corev1.EventTypeWarning, "InvalidNamespace", "Reconciling", msg)
 		conditions.Set(lb, conditions.FalseCondition(lockboxv1.ReadyCondition, "InvalidNamespace", lockboxv1.ConditionSeverityWarning, msg))
 		_ = s.client.Status().Update(ctx, lb)
 		return reconcile.Result{}, fmt.Errorf("incorrect namespace: %s, should be %s", namespace, lb.Namespace)
@@ -135,14 +137,14 @@ func (s *SecretReconciler) Reconcile(ctx context.Context, lb *lockboxv1.Lockbox)
 
 // reconcileExisting returns a function suitable for controllerutil.CreateOrUpdate that mutates a Secret object
 // to reflect the desired state.
-func (s *SecretReconciler) reconcileExisting(lb *lockboxv1.Lockbox, sender nacl.Key, secret *corev1.Secret) func() error {
+func (s *SecretReconciler) reconcileExisting(lb *lockboxv1.Lockbox, _ nacl.Key, secret *corev1.Secret) func() error {
 	return func() error {
 		if err := controllerutil.SetControllerReference(lb, secret, s.client.Scheme()); err != nil {
 			switch err := err.(type) {
 			case decryptSecretKeyErrorer:
-				s.recorder.Eventf(lb, "Warning", "InvalidLockbox", "lockbox contained key %q that could not be unlocked", err.SecretKey())
+				s.recorder.Eventf(lb, nil, corev1.EventTypeWarning, "InvalidLockbox", "Reconciling", "lockbox contained key %q that could not be unlocked", err.SecretKey())
 			default:
-				s.recorder.Eventf(lb, "Warning", "InvalidLockbox", "lockbox could not be unlocked")
+				s.recorder.Eventf(lb, nil, corev1.EventTypeWarning, "InvalidLockbox", "Reconciling", "lockbox could not be unlocked")
 			}
 
 			return err
@@ -153,7 +155,7 @@ func (s *SecretReconciler) reconcileExisting(lb *lockboxv1.Lockbox, sender nacl.
 }
 
 // WithRecorder sets the EventRecorder used by the SecretReconciler.
-func WithRecorder(r record.EventRecorder) SecretReconcilerOption {
+func WithRecorder(r recorder.EventRecorder) SecretReconcilerOption {
 	return func(s *SecretReconciler) {
 		s.recorder = r
 	}
@@ -170,4 +172,11 @@ func WithClient(c client.Client) SecretReconcilerOption {
 // fetch the secret data key that triggered the error.
 type decryptSecretKeyErrorer interface {
 	SecretKey() string
+}
+
+type fakeEventRecorder struct{}
+
+func (fakeEventRecorder) Eventf(regarding, related runtime.Object, eventtype, reason, action, note string, args ...any) {
+}
+func (fakeEventRecorder) AnnotatedEventf(regarding runtime.Object, related runtime.Object, annotations map[string]string, eventtype, reason, action, note string, args ...any) {
 }

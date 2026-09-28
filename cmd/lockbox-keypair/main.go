@@ -18,5 +18,5 @@ func main() {
 	pub64 := base64.StdEncoding.EncodeToString(lockboxPubKey[:])
 	pri64 := base64.StdEncoding.EncodeToString(lockboxPriKey[:])
 
-	fmt.Fprintf(os.Stdout, "public:  %s\nprivate: %s\n", pub64, pri64)
+	_, _ = fmt.Fprintf(os.Stdout, "public:  %s\nprivate: %s\n", pub64, pri64)
 }

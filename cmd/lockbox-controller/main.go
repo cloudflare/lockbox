@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -20,17 +18,15 @@ import (
 	"github.com/rs/zerolog"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
 var (
@@ -68,7 +64,7 @@ func main() {
 		logger.Fatal().Err(err).Str("path", keypairPath.Value).Msg("unable to parse keypair")
 		os.Exit(1)
 	}
-	keypair.Close()
+	_ = keypair.Close()
 
 	err = lockboxv1.AddToScheme(scheme.Scheme)
 	if err != nil {
@@ -98,7 +94,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	recorder := mgr.GetEventRecorderFor("lockbox")
+	recorder := mgr.GetEventRecorder("lockbox")
 	client := mgr.GetClient()
 
 	sr := lockboxcontroller.NewSecretReconciler(pubKey, priKey, lockboxcontroller.WithRecorder(recorder), lockboxcontroller.WithClient(client))
@@ -130,66 +126,31 @@ func main() {
 	metrics.Registry.MustRegister(info, created, resourceVersion, lbType, labels, peerKey)
 
 	mh := statemetrics.NewStateMetricProxy(
-		&handler.EnqueueRequestForObject{},
 		info, created, resourceVersion,
 		lbType, peerKey, labels,
 	)
 
-	c, err := controller.New("lockbox-controller", mgr, controller.Options{
-		Reconciler: reconcile.AsReconciler(mgr.GetClient(), sr),
-	})
-
-	if err != nil {
-		logger.Fatal().Err(err).Msg("unable to create controller")
-		os.Exit(1)
+	if err := builder.ControllerManagedBy(mgr).
+		For(&lockboxv1.Lockbox{}).
+		Owns(&corev1.Secret{}).
+		Watches(&lockboxv1.Lockbox{}, mh).
+		Complete(reconcile.AsReconciler(mgr.GetClient(), sr)); err != nil {
+		logger.Fatal().Err(err).Send()
 	}
 
-	if err := c.Watch(source.Kind(mgr.GetCache(), &lockboxv1.Lockbox{}), mh); err != nil {
-		logger.Fatal().Err(err).Msg("unable to watch Lockbox resources")
-		os.Exit(1)
-	}
-
-	if err := c.Watch(source.Kind(mgr.GetCache(), &corev1.Secret{}), handler.EnqueueRequestForOwner(scheme.Scheme, mgr.GetRESTMapper(), &lockboxv1.Lockbox{}, handler.OnlyControllerOwner())); err != nil {
-		logger.Fatal().Err(err).Msg("unable to watch Secret resources")
-		os.Exit(1)
-	}
-
-	// TODO(terin): make server implement Runnable
-	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-		mux := http.NewServeMux()
-		mux.Handle("/v1/public", server.PublicKey(pubKey))
-
-		ln, err := net.Listen("tcp", httpAddr.Text)
-		if err != nil {
-			return err
-		}
-
-		// sig.kubernetes.io/controller-runtime/pkg/internal/httpserver
-		s := http.Server{
+	mux := http.NewServeMux()
+	mux.Handle("GET /v1/public", server.PublicKey(pubKey))
+	if err := mgr.Add(&manager.Server{
+		Name: "keyserver",
+		Server: &http.Server{
 			Handler:           mux,
+			Addr:              httpAddr.Text,
 			MaxHeaderBytes:    1 << 20,
 			IdleTimeout:       90 * time.Second,
 			ReadHeaderTimeout: 32 * time.Second,
-		}
-
-		idleConnsClosed := make(chan struct{})
-		go func() {
-			<-ctx.Done()
-
-			if err := s.Shutdown(context.Background()); err != nil {
-				logger.Err(err).Send()
-			}
-			close(idleConnsClosed)
-		}()
-
-		if err := s.Serve(ln); err != nil && err != http.ErrServerClosed {
-			return err
-		}
-
-		<-idleConnsClosed
-		return nil
-	})); err != nil {
-		logger.Fatal().Err(err).Msg("unable to add server runnable")
+		},
+	}); err != nil {
+		logger.Fatal().Err(err).Send()
 	}
 
 	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {

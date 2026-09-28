@@ -9,6 +9,7 @@ import (
 	lockboxv1 "github.com/cloudflare/lockbox/pkg/apis/lockbox.k8s.cloudflare.com/v1"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"gotest.tools/v3/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
@@ -39,7 +40,7 @@ func TestStateMetricsProxy_Create(t *testing.T) {
 
 	evt := event.CreateEvent{Object: lb}
 
-	handler := NewStateMetricProxy(nil, info, created, resourceVersion, lbType, peerKey, labels)
+	handler := NewStateMetricProxy(info, created, resourceVersion, lbType, peerKey, labels)
 	handler.Create(context.Background(), evt, nil)
 
 	expected := strings.NewReader(`
@@ -63,9 +64,7 @@ kube_lockbox_peer{lockbox="buzz",namespace="fizz",peer="deadbeef"} 1
 kube_lockbox_labels{label_testing="true",lockbox="buzz",namespace="fizz"} 1
 `)
 
-	if err := testutil.GatherAndCompare(reg, expected); err != nil {
-		t.Error(err)
-	}
+	assert.NilError(t, testutil.GatherAndCompare(reg, expected))
 }
 
 func TestStateMetricsProxy_Update(t *testing.T) {
@@ -116,7 +115,7 @@ func TestStateMetricsProxy_Update(t *testing.T) {
 		ObjectNew: lb,
 	}
 
-	handler := NewStateMetricProxy(nil, info, created, resourceVersion, lbType, peerKey, labels)
+	handler := NewStateMetricProxy(info, created, resourceVersion, lbType, peerKey, labels)
 	handler.Create(context.Background(), create, nil)
 	handler.Update(context.Background(), upd, nil)
 
@@ -141,9 +140,7 @@ kube_lockbox_peer{lockbox="buzz",namespace="fizz",peer="deadbeef"} 1
 kube_lockbox_labels{label_testing="true",lockbox="buzz",namespace="fizz"} 1
 `)
 
-	if err := testutil.GatherAndCompare(reg, expected); err != nil {
-		t.Error(err)
-	}
+	assert.NilError(t, testutil.GatherAndCompare(reg, expected))
 }
 
 func TestStateMetricsProxy_Delete(t *testing.T) {
@@ -176,18 +173,18 @@ func TestStateMetricsProxy_Delete(t *testing.T) {
 		DeleteStateUnknown: false,
 	}
 
-	handler := NewStateMetricProxy(nil, info, created, resourceVersion, lbType, peerKey, labels)
+	handler := NewStateMetricProxy(info, created, resourceVersion, lbType, peerKey, labels)
 	handler.Create(context.Background(), create, nil)
 	handler.Delete(context.Background(), deleted, nil)
 
 	expected := &strings.Reader{}
 
-	if err := testutil.GatherAndCompare(reg, expected); err != nil {
-		t.Error(err)
-	}
+	assert.NilError(t, testutil.GatherAndCompare(reg, expected))
 }
 
 func createMetricVectors(t *testing.T) (info, created, resourceVersion, lbType, peerKey *KubernetesVec, labels *LabelsVec) {
+	t.Helper()
+
 	info = NewKubernetesVec(KubernetesOpts{
 		Name: "kube_lockbox_info",
 		Help: "Information about Lockbox",

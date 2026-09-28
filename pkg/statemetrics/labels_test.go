@@ -29,5 +29,5 @@ func TestLabelsTransformation(t *testing.T) {
 }
 
 func checkLabelName(l string) bool {
-	return model.LabelName(l).IsValid() && !strings.HasPrefix(l, reservedLabelPrefix)
+	return model.UTF8Validation.IsValidLabelName(l) && !strings.HasPrefix(l, reservedLabelPrefix)
 }

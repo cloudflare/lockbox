@@ -8,13 +8,12 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
+	_ "sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-// StateMetricProxy updates state metrics by intercepting events as they are passed to event handlers.
+// StateMetricProxy updates state metrics by implementing the [handler.EventHandler] interface.
 type StateMetricProxy struct {
-	enqueuer handler.EventHandler
-
 	info            *KubernetesVec
 	created         *KubernetesVec
 	resourceVersion *KubernetesVec
@@ -24,9 +23,8 @@ type StateMetricProxy struct {
 }
 
 // NewStateMetricProxy returns a StateMetricsProxy. All metrics must be non-nil.
-func NewStateMetricProxy(enqueuer handler.EventHandler, info, created, resourceVersion, lbType, peerKey *KubernetesVec, labels *LabelsVec) *StateMetricProxy {
+func NewStateMetricProxy(info, created, resourceVersion, lbType, peerKey *KubernetesVec, labels *LabelsVec) *StateMetricProxy {
 	return &StateMetricProxy{
-		enqueuer:        enqueuer,
 		info:            info,
 		created:         created,
 		resourceVersion: resourceVersion,
@@ -37,25 +35,17 @@ func NewStateMetricProxy(enqueuer handler.EventHandler, info, created, resourceV
 }
 
 // Create implements EventHandler.
-func (s *StateMetricProxy) Create(ctx context.Context, evt event.CreateEvent, q workqueue.RateLimitingInterface) {
+func (s *StateMetricProxy) Create(ctx context.Context, evt event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	s.updateWith(evt.Object)
-
-	if s.enqueuer != nil {
-		s.enqueuer.Create(ctx, evt, q)
-	}
 }
 
 // Update implements EventHandler.
-func (s *StateMetricProxy) Update(ctx context.Context, evt event.UpdateEvent, q workqueue.RateLimitingInterface) {
+func (s *StateMetricProxy) Update(ctx context.Context, evt event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	s.updateWith(evt.ObjectNew)
-
-	if s.enqueuer != nil {
-		s.enqueuer.Update(ctx, evt, q)
-	}
 }
 
 // Delete implements EventHandler.
-func (s *StateMetricProxy) Delete(ctx context.Context, evt event.DeleteEvent, q workqueue.RateLimitingInterface) {
+func (s *StateMetricProxy) Delete(ctx context.Context, evt event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	uid := evt.Object.GetUID()
 
 	s.info.Delete(uid)
@@ -64,17 +54,10 @@ func (s *StateMetricProxy) Delete(ctx context.Context, evt event.DeleteEvent, q 
 	s.lbType.Delete(uid)
 	s.peerKey.Delete(uid)
 	s.labels.Delete(uid)
-
-	if s.enqueuer != nil {
-		s.enqueuer.Delete(ctx, evt, q)
-	}
 }
 
 // Generic implements EventHandler.
-func (s *StateMetricProxy) Generic(ctx context.Context, evt event.GenericEvent, q workqueue.RateLimitingInterface) {
-	if s.enqueuer != nil {
-		s.enqueuer.Generic(ctx, evt, q)
-	}
+func (s *StateMetricProxy) Generic(ctx context.Context, evt event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 // updateWith updates the metrics for Create and Update handles.
