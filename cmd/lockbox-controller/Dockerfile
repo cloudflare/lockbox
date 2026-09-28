@@ -1,13 +1,18 @@
-FROM docker.io/library/golang:1.21.5-bookworm AS builder
+FROM --platform=$BUILDPLATFORM docker.io/tonistiigi/xx:1.9.0 AS xx
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.27.1-trixie AS builder
+COPY --from=xx / /
+ARG TARGETPLATFORM
 WORKDIR /go/src/app
 ADD . /go/src/app
 
+RUN apt-get update && apt-get install -y clang lld && xx-apt-get install -y xx-c-essentials
+RUN xx-go --wrap
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=secret,id=certificates,target=/etc/ssl/certs/ca-certificates.crt \
     make bin/lockbox-controller
+RUN xx-verify bin/lockbox-controller && go version -m bin/lockbox-controller
 
-
-FROM gcr.io/distroless/base-nossl-debian12:nonroot
+FROM docker.io/chainguard/glibc-dynamic:latest
 COPY --from=builder /go/src/app/bin/lockbox-controller /bin
 ENTRYPOINT ["/bin/lockbox-controller"]
